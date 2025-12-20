@@ -7,42 +7,34 @@ type BookingPayload = {
   tipo?: "ASPORTO" | "CONSEGNA" | "TAVOLO";
   data?: string; // YYYY-MM-DD oppure DD/MM/YYYY
   ora?: string; // HH:mm (accetto anche 12.30 o 12)
-  ordine?: string;
+  ordine?: string; // per TAVOLO può essere vuoto
 
   indirizzo?: string;
   persone?: string;
   pagamento?: string;
-  allergeni?: string; // testo tipo "Senza glutine, Senza lattosio"
+  allergeni?: string;
   note?: string;
 
   negozio?: string;
-  canale?: string; // "APP"
-  honeypot?: string; // anti-spam
+  canale?: string;
+  honeypot?: string;
 };
 
 function normalizeDate(v: string) {
   const s = (v ?? "").toString().trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  // accetta DD/MM/YYYY
   const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-
   return s;
 }
 
 function normalizeTime(v: string) {
   const s = (v ?? "").toString().trim();
   if (/^\d{2}:\d{2}$/.test(s)) return s;
-
-  // accetta 12.30
   const dot = s.match(/^(\d{1,2})\.(\d{2})$/);
   if (dot) return `${dot[1].padStart(2, "0")}:${dot[2]}`;
-
-  // accetta 12  -> 12:00
   const hh = s.match(/^(\d{1,2})$/);
   if (hh) return `${hh[1].padStart(2, "0")}:00`;
-
   return s;
 }
 
@@ -56,20 +48,16 @@ function isValidTime(v: string) {
 export async function POST(req: NextRequest) {
   try {
     const BOOKING_WEBAPP_URL = process.env.BOOKING_WEBAPP_URL;
-
     if (!BOOKING_WEBAPP_URL) {
       return NextResponse.json(
-        {
-          error:
-            "BOOKING_WEBAPP_URL mancante (configura su .env.local e su Vercel).",
-        },
+        { error: "BOOKING_WEBAPP_URL mancante (Vercel env)." },
         { status: 500 }
       );
     }
 
     const body = (await req.json().catch(() => null)) as BookingPayload | null;
 
-    // anti-spam: se compilano un campo invisibile, blocca
+    // anti-spam
     if (body?.honeypot && String(body.honeypot).trim().length > 0) {
       return NextResponse.json({ error: "Richiesta non valida." }, { status: 400 });
     }
@@ -82,12 +70,10 @@ export async function POST(req: NextRequest) {
       | "TAVOLO"
       | "";
 
-    // ✅ normalizzazione
     const data = normalizeDate((body?.data ?? "").toString());
     const ora = normalizeTime((body?.ora ?? "").toString());
 
     const ordine = (body?.ordine ?? "").toString().trim();
-
     const indirizzo = (body?.indirizzo ?? "").toString().trim();
     const persone = (body?.persone ?? "").toString().trim();
     const pagamento = (body?.pagamento ?? "").toString().trim();
@@ -97,12 +83,10 @@ export async function POST(req: NextRequest) {
     const negozio = (body?.negozio ?? "Pala Pizza").toString().trim();
     const canale = (body?.canale ?? "APP").toString().trim().toUpperCase();
 
-    // ⚠️ obbligatori
-    if (!nome || !telefono || !tipo || !data || !ora || !ordine) {
+    if (!nome || !telefono || !tipo || !data || !ora) {
       return NextResponse.json(
         {
-          error:
-            "Campi obbligatori mancanti (nome, telefono, tipo, data, ora, ordine/prenotazione).",
+          error: "Campi obbligatori mancanti (nome, telefono, tipo, data, ora).",
           received: { nome, telefono, tipo, data, ora, ordine },
         },
         { status: 400 }
@@ -110,7 +94,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!["ASPORTO", "CONSEGNA", "TAVOLO"].includes(tipo)) {
-      return NextResponse.json({ error: "Tipo non valido." }, { status: 400 });
+      return NextResponse.json({ error: "Tipo non valido.", received: { tipo } }, { status: 400 });
     }
     if (!isValidDate(data)) {
       return NextResponse.json(
@@ -125,20 +109,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // regole per tipo
     if (tipo === "CONSEGNA" && !indirizzo) {
-      return NextResponse.json(
-        { error: "Per la consegna serve l’indirizzo." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Per la consegna serve l’indirizzo." }, { status: 400 });
     }
     if (tipo === "TAVOLO" && !persone) {
+      return NextResponse.json({ error: "Per il tavolo serve il numero persone." }, { status: 400 });
+    }
+    // ordine richiesto SOLO per asporto/consegna
+    if ((tipo === "ASPORTO" || tipo === "CONSEGNA") && !ordine) {
       return NextResponse.json(
-        { error: "Per il tavolo serve il numero persone." },
+        { error: "Per asporto/consegna serve l’ordine.", received: { tipo, ordine } },
         { status: 400 }
       );
     }
 
-    // payload verso Apps Script
     const forward = {
       ts: new Date().toISOString(),
       negozio,
@@ -147,14 +132,14 @@ export async function POST(req: NextRequest) {
       tipo,
       data,
       ora,
-      ordine,
+      ordine: tipo === "TAVOLO" ? ordine : ordine, // lo mando comunque se c’è
       indirizzo: tipo === "CONSEGNA" ? indirizzo : "",
       persone: tipo === "TAVOLO" ? persone : "",
       pagamento,
       allergeni,
       note,
       stato: "NUOVO",
-      canale, // APP
+      canale,
     };
 
     const res = await fetch(BOOKING_WEBAPP_URL, {
@@ -164,7 +149,6 @@ export async function POST(req: NextRequest) {
     });
 
     const text = await res.text().catch(() => "");
-
     if (!res.ok) {
       return NextResponse.json(
         { error: `Errore pannello: ${res.status} ${res.statusText}`, details: text },
@@ -173,11 +157,7 @@ export async function POST(req: NextRequest) {
     }
 
     let parsed: any = null;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // ok: può essere testo
-    }
+    try { parsed = JSON.parse(text); } catch {}
 
     return NextResponse.json({
       ok: true,
