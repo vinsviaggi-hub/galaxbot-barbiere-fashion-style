@@ -1,4 +1,3 @@
-// app/api/chat/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -8,87 +7,118 @@ const client = new OpenAI({
   apiKey: apiKey ?? "",
 });
 
+type Body = {
+  message?: string;
+  context?: {
+    businessName?: string;
+    address?: string;
+    phone?: string;
+    mode?: string; // "INFO_ONLY"
+  };
+};
+
+function looksLikeOrder(text: string) {
+  const t = (text || "").toLowerCase();
+  const keywords = [
+    "ordino",
+    "vorrei ordinare",
+    "voglio ordinare",
+    "prenoto",
+    "prenotare",
+    "tavolo per",
+    "consegna",
+    "asporto",
+    "indirizzo",
+    "citofono",
+    "margherita",
+    "diavola",
+    "coca",
+    "menu",
+    "menù",
+    "ordine",
+  ];
+  return keywords.some((k) => t.includes(k));
+}
+
 export async function POST(req: Request) {
   try {
     if (!apiKey) {
-      console.error("❌ OPENAI_API_KEY mancante (.env.local)");
       return NextResponse.json(
-        { error: "OPENAI_API_KEY non configurata sul server." },
+        { error: "OPENAI_API_KEY mancante (.env.local)" },
         { status: 500 }
       );
     }
 
-    const body = await req.json().catch(() => null);
-    const userMessage = body?.message?.toString().trim();
+    const body = (await req.json().catch(() => null)) as Body | null;
 
-    if (!userMessage) {
+    const message = body?.message?.toString().trim() ?? "";
+    const businessName = body?.context?.businessName?.toString().trim() || "Pala Pizza 🍕";
+    const address = body?.context?.address?.toString().trim() || "Via Roma 10, 00100 Roma (RM)";
+    const phone = body?.context?.phone?.toString().trim() || "06 1234 5678";
+    const mode = body?.context?.mode?.toString().trim() || "INFO_ONLY";
+
+    if (!message) {
+      return NextResponse.json({ error: "Messaggio mancante." }, { status: 400 });
+    }
+
+    // ✅ Blocca ordini/prenotazioni in chat: rimanda al modulo
+    if (mode === "INFO_ONLY" && looksLikeOrder(message)) {
       return NextResponse.json(
-        { error: "Messaggio mancante nella richiesta." },
-        { status: 400 }
+        {
+          reply:
+            "Per ordini o prenotazioni usa il modulo “Ordina / Prenota” ✅\n" +
+            "Qui in chat posso darti info su orari, indirizzo, telefono e consegna/asporto/tavolo.",
+        },
+        { status: 200 }
       );
     }
 
-    const prompt =
-      "Sei GalaxBot, un assistente personale che risponde in ITALIANO, " +
-      "con tono amichevole ma concreto. Rispondi in modo chiaro e breve (max 6–7 frasi). " +
-      "Non dire mai che sei un modello di intelligenza artificiale.\n\n" +
-      "Domanda dell'utente:\n" +
-      userMessage;
+    const systemPrompt = `
+Sei GalaxBot AI, assistente informazioni per una PIZZERIA / RISTORANTE.
 
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: prompt,
+REGOLA IMPORTANTISSIMA (obbligatoria):
+- NON devi prendere ordini o prenotazioni via chat.
+- NON devi chiedere tutti i dati per completare un ordine.
+- Se l'utente vuole ordinare o prenotare: devi SEMPRE rimandarlo al modulo "Ordina / Prenota" (sul sito/app).
+- Quindi: niente riepiloghi "confermo il tuo ordine", niente conferme di consegna/prenotazione, niente promesse.
+
+Cosa PUOI fare:
+- Dare informazioni generiche e utili: orari, dove si trova, telefono, come funziona asporto/consegna/tavolo.
+- Se chiedono menu/prezzi: rispondi in modo GENERICO ("dipende dal menu del locale") e invita a scrivere nel modulo.
+- Risposte brevi: max 4-5 frasi.
+- Tono: gentile, moderno, semplice.
+- Usa al massimo 1 emoji.
+
+Dati del locale (demo):
+- Nome: ${businessName}
+- Indirizzo: ${address}
+- Telefono: ${phone}
+
+Quando rimandi al modulo, usa questa frase:
+"Per ordini o prenotazioni usa il modulo “Ordina / Prenota” ✅"
+`.trim();
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: message },
+      ],
+      temperature: 0.4,
     });
 
-    // 👇 QUI prendiamo il testo dal campo giusto
-    const r: any = response;
-    let reply = "";
-
-    const ot = r.output_text;
-
-    if (Array.isArray(ot)) {
-      // se è un array, uniamo i pezzi
-      reply = ot
-        .map((p: any) =>
-          typeof p === "string"
-            ? p
-            : p.text?.value ?? p.text ?? ""
-        )
-        .join("\n")
-        .trim();
-    } else if (typeof ot === "string") {
-      // se è una stringa singola (come nel tuo log)
-      reply = ot.trim();
-    }
-
-    // fallback: se in futuro cambia formato
-    if (!reply && Array.isArray(r.output)) {
-      const parts: string[] = [];
-      for (const item of r.output) {
-        for (const c of item.content ?? []) {
-          if (c.type === "output_text" && c.text?.value) {
-            parts.push(c.text.value);
-          } else if (c.text) {
-            parts.push(c.text);
-          }
-        }
-      }
-      reply = parts.join("\n").trim();
-    }
-
-    if (!reply) {
-      console.error("⚠️ Risposta OpenAI vuota:", JSON.stringify(response, null, 2));
-      return NextResponse.json(
-        { error: "Risposta vuota dal modello." },
-        { status: 500 }
-      );
-    }
+    const reply =
+      completion.choices[0]?.message?.content?.toString().trim() ||
+      "Ok ✅";
 
     return NextResponse.json({ reply }, { status: 200 });
   } catch (err: any) {
-    console.error("💥 Errore interno /api/chat:", err?.message ?? err);
+    console.error("Errore API /api/chat:", err);
     return NextResponse.json(
-      { error: "Errore interno nella risposta del bot." },
+      {
+        reply:
+          "Mi dispiace, c'è stato un errore tecnico con il server. Riprova più tardi.",
+      },
       { status: 500 }
     );
   }
