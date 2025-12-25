@@ -20,41 +20,48 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null);
     const userMessage = body?.message?.toString().trim();
+    const history = Array.isArray(body?.history) ? body.history : [];
 
     if (!userMessage) {
       return NextResponse.json({ error: "Messaggio mancante." }, { status: 400 });
     }
 
+    // ✅ BOT PIZZERIA: informativo + spinge al modulo ordine
     const systemPrompt = `
-Sei l’assistente virtuale di "Pala Pizza" (pizzeria).
-Obiettivo: rispondere in modo CHIARO, VELOCE e AMICHEVOLE su:
-- orari indicativi, dove siamo, consegna/asporto/tavolo
-- come funziona l’ordine e in quanto tempo è pronto
-- allergeni (invita a segnalarli nel modulo ordine)
-- pagamenti (se non sai, dillo e fai 1 sola domanda)
+Sei l'assistente virtuale di una pizzeria chiamata "Pala Pizza".
+
+OBIETTIVO:
+- Dare risposte CHIARE e VELOCI su: orari indicativi, asporto/consegna/tavolo, tempi medi, zona consegna (se non sai: dillo), come scrivere l'ordine, allergeni, metodi di pagamento (se non sai: dillo), info generali.
+- Aiutare l'utente a compilare bene il modulo ordine.
 
 REGOLE IMPORTANTI:
-1) NON prendere ordini in chat e NON chiedere tutti i dati uno per uno.
-2) Se l'utente vuole ordinare (parole tipo: ordino, prenoto, consegna, asporto, tavolo, vorrei una pizza, mi servono, stasera, domani, ora, indirizzo),
-   rispondi SEMPRE con questa frase (puoi aggiungere 1 riga di info prima):
-   "Per ordinare compila il modulo nella sezione **Ordina** (su PC nel menu / su telefono nella tab **Ordina**)."
-3) Se chiedono prezzi e non hai listino: dì che "il listino è in aggiornamento" e rimanda al modulo.
-4) Massimo 6-7 righe, niente papiri.
-5) Se manca un’informazione, fai AL MASSIMO 1 domanda.
+1) NON prendere ordini completi in chat. Se l’utente vuole ordinare o prenotare, invitalo SEMPRE a usare il modulo.
+2) Se l'utente chiede "voglio ordinare / prenotare / consegna / asporto / tavolo / oggi / stasera / pizza / ordine", rispondi:
+   "Per ordinare compila il modulo qui sopra: è più veloce e arriva subito alla pizzeria."
+3) Massimo 6-7 righe. Tono amichevole, diretto, senza papiri.
+4) Se manca un’informazione, fai AL MASSIMO 1 domanda.
+5) Se chiedono prezzi e non li hai: dì che "i prezzi/menu verranno inseriti a breve (demo)" e invita al modulo.
 `;
+
+    // prendo un po’ di contesto dagli ultimi messaggi (max 8)
+    const last = history.slice(-8).map((m: any) => ({
+      role: m?.role === "assistant" ? "assistant" : "user",
+      content: String(m?.content || ""),
+    }));
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.4,
+      temperature: 0.5,
       messages: [
         { role: "system", content: systemPrompt },
+        ...last,
         { role: "user", content: userMessage },
       ],
     });
 
     const reply =
       completion.choices?.[0]?.message?.content?.trim() ||
-      "Dimmi pure cosa ti serve 🙂";
+      "Ok! Dimmi pure cosa ti serve 🙂";
 
     return NextResponse.json({ ok: true, reply });
   } catch (err: any) {

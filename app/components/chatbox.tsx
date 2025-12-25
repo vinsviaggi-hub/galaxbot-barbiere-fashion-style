@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import styles from "./chatbox.module.css";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -9,7 +10,7 @@ export default function ChatBox() {
     {
       role: "assistant",
       content:
-        "Ciao! Sono l’assistente del laboratorio. Dimmi cosa ti serve: orari, ritiro/consegna, come prenotare scatole 50/100/200, info generali.",
+        "Ciao! Sono il bot di Pala Pizza 🍕\nPosso aiutarti con: orari, asporto/consegna, tempi, allergeni e come scrivere l’ordine.\nPer ordinare usa il modulo qui sopra 🙂",
     },
   ]);
   const [input, setInput] = useState("");
@@ -51,19 +52,27 @@ export default function ChatBox() {
   }
 
   return (
-    <div className="chatWrap">
-      <div className="chatList" ref={listRef}>
+    <div className={styles.chatWrap}>
+      <div className={styles.chatHead}>
+        <p className={styles.chatTitle}>Hai dubbi? Chiedi al bot 🍕</p>
+        <p className={styles.chatSub}>Risposte rapide su orari, consegna/asporto, allergeni, ordine.</p>
+      </div>
+
+      <div className={styles.chatList} ref={listRef}>
         {messages.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}>
+          <div
+            key={i}
+            className={`${styles.bubble} ${m.role === "user" ? styles.user : styles.assistant}`}
+          >
             {m.content}
           </div>
         ))}
-        {loading && <div className="bubble assistant">Sto scrivendo…</div>}
+        {loading && <div className={`${styles.bubble} ${styles.assistant}`}>Sto scrivendo…</div>}
       </div>
 
-      <div className="chatBar">
+      <div className={styles.chatBar}>
         <input
-          className="chatInput"
+          className={styles.chatInput}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Scrivi una domanda…"
@@ -71,7 +80,7 @@ export default function ChatBox() {
             if (e.key === "Enter") send();
           }}
         />
-        <button className="chatSend" onClick={send} disabled={loading}>
+        <button className={styles.chatSend} onClick={send} disabled={loading}>
           Invia
         </button>
       </div>

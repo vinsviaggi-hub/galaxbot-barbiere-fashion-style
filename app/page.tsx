@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import styles from "./page.module.css";
+import ChatBox from "./components/chatbox";
 
 type Tipo = "TAVOLO" | "ASPORTO" | "CONSEGNA";
 
@@ -72,8 +73,7 @@ export default function Home() {
         return;
       }
 
-      setOkMsg("✅ Ordine inviato! Ti contattiamo a breve per conferma.");
-      // reset soft
+      setOkMsg("✅ Ordine inviato! La pizzeria ti conferma su WhatsApp/telefono.");
       setOrdine("");
       setAllergeni("");
       setNote("");
@@ -90,16 +90,16 @@ export default function Home() {
       <div className={styles.shell}>
         <header className={styles.header}>
           <div className={styles.brand}>
-            <div className={styles.logo} aria-hidden>🍕</div>
+            <div className={styles.logo} aria-hidden>
+              🍕
+            </div>
             <div>
               <h1 className={styles.h1}>Pala Pizza</h1>
-              <p className={styles.sub}>Ordina in 30 secondi. Ricevi conferma via telefono/WhatsApp.</p>
+              <p className={styles.sub}>Ordina in 30 secondi. Ricevi conferma via WhatsApp/telefono.</p>
             </div>
           </div>
 
-          <a className={styles.adminLink} href="/pannello/login">
-            Area staff →
-          </a>
+          {/* ✅ NIENTE "Area staff" qui: il pannello è SOLO con link segreto */}
         </header>
 
         <div className={styles.card}>
@@ -124,7 +124,12 @@ export default function Home() {
             <div className={styles.grid2}>
               <div className={styles.field}>
                 <label className={styles.label}>Nome *</label>
-                <input className={styles.input} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Es. Gennaro" />
+                <input
+                  className={styles.input}
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  placeholder="Es. Gennaro"
+                />
               </div>
 
               <div className={styles.field}>
@@ -163,7 +168,12 @@ export default function Home() {
             {isConsegna ? (
               <div className={styles.field}>
                 <label className={styles.label}>Indirizzo *</label>
-                <input className={styles.input} value={indirizzo} onChange={(e) => setIndirizzo(e.target.value)} placeholder="Via, numero, citofono…" />
+                <input
+                  className={styles.input}
+                  value={indirizzo}
+                  onChange={(e) => setIndirizzo(e.target.value)}
+                  placeholder="Via, numero, citofono…"
+                />
               </div>
             ) : null}
 
@@ -175,17 +185,28 @@ export default function Home() {
                 onChange={(e) => setOrdine(e.target.value)}
                 placeholder="Es. 2 Margherite + 1 Diavola + 1 Coca Cola…"
               />
+              <div className={styles.tip}>Tip: scrivi anche impasto/taglia, bibite, e se hai un orario preferito.</div>
             </div>
 
             <div className={styles.grid2}>
               <div className={styles.field}>
                 <label className={styles.label}>Allergeni</label>
-                <input className={styles.input} value={allergeni} onChange={(e) => setAllergeni(e.target.value)} placeholder="Es. lattosio, glutine…" />
+                <input
+                  className={styles.input}
+                  value={allergeni}
+                  onChange={(e) => setAllergeni(e.target.value)}
+                  placeholder="Es. lattosio, glutine…"
+                />
               </div>
 
               <div className={styles.field}>
                 <label className={styles.label}>Note</label>
-                <input className={styles.input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Es. senza cipolla, ben cotta…" />
+                <input
+                  className={styles.input}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Es. senza cipolla, ben cotta…"
+                />
               </div>
             </div>
 
@@ -194,10 +215,21 @@ export default function Home() {
             </button>
 
             <div className={styles.footerHint}>
-              Dopo l’invio, la pizzeria vede l’ordine nel pannello e può contattarti per conferma.
+              Dopo l’invio, la pizzeria vede l’ordine nel pannello e ti conferma su WhatsApp/telefono.
             </div>
           </form>
         </div>
+
+        {/* ✅ BOT */}
+        <section className={styles.botSection}>
+          <div className={styles.botTitle}>Hai dubbi? Chiedi al bot 🍕</div>
+          <div className={styles.botSub}>Orari, consegna/asporto, allergeni, come scrivere l’ordine.</div>
+          <div className={styles.botBox}>
+            <ChatBox />
+          </div>
+        </section>
+
+        {/* ✅ Footer demo tolto: niente badge/scritte sotto */}
       </div>
     </div>
   );
