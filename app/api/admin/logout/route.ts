@@ -20,6 +20,7 @@ function clearCookie(res: NextResponse) {
     sameSite: "lax",
     path: "/",
     maxAge: 0,
+    expires: new Date(0),
   });
   return res;
 }
@@ -30,7 +31,8 @@ export async function POST() {
 }
 
 export async function GET(req: Request) {
-  const res = NextResponse.redirect(new URL("/pannello", req.url));
+  // ✅ dopo logout vai sempre al login NUOVO
+  const res = NextResponse.redirect(new URL("/pannello/login", req.url));
   res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");

@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 
 type BookingStatus = "NUOVA" | "CONFERMATA" | "ANNULLATA" | string;
 
@@ -101,7 +102,7 @@ function statusPillStyle(st: BookingStatus): CSSProperties {
   };
 }
 
-// ✅ nome vivace (non rosa) – blu acceso, leggibilissimo
+// ✅ nome vivace – blu acceso, leggibilissimo
 function nameBadgeStyle(): CSSProperties {
   return {
     display: "inline-flex",
@@ -179,11 +180,10 @@ function buildCancelMsg(r: AdminRow) {
 }
 
 export default function PannelloAdmin() {
+  const router = useRouter();
+
   const [checking, setChecking] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
-
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState<string | null>(null);
 
   const [rows, setRows] = useState<AdminRow[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
@@ -255,7 +255,6 @@ export default function PannelloAdmin() {
 
   const checkMe = async () => {
     setChecking(true);
-    setAuthError(null);
     try {
       const res = await fetch("/api/admin/me", { credentials: "include" });
       const data: MeResponse = await safeJson(res);
@@ -308,46 +307,12 @@ export default function PannelloAdmin() {
     }
   };
 
-  const login = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError(null);
-
-    const pw = password.trim();
-    if (!pw) {
-      setAuthError("Inserisci la password admin.");
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/admin/login", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: pw }),
-      });
-
-      const data = await safeJson(res);
-      if (!(data as any)?.ok) {
-        setAuthError((data as any)?.error || "Password errata.");
-        return;
-      }
-
-      setPassword("");
-      setLoggedIn(true);
-      showToast("ok", "Accesso effettuato.");
-      await loadRows();
-    } catch {
-      setAuthError("Errore rete durante il login.");
-    }
-  };
-
   const logout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST", credentials: "include" });
     } catch {}
-    setLoggedIn(false);
-    setRows([]);
-    showToast("ok", "Logout effettuato.");
+    // ✅ vai SEMPRE al login nuovo (niente login vecchio in questa pagina)
+    window.location.href = "/pannello/login";
   };
 
   const setStatus = async (id: string, status: BookingStatus) => {
@@ -385,11 +350,9 @@ export default function PannelloAdmin() {
       showToast("err", "Telefono mancante: non posso aprire WhatsApp.");
       return;
     }
-    // ✅ apertura IMMEDIATA (non bloccata dal browser)
     window.open(waLink(p, message), "_blank", "noopener,noreferrer");
   }
 
-  // ✅ QUI la differenza: prima apro WhatsApp (subito), poi aggiorno lo stato
   const confirmWhatsApp = (r: AdminRow) => {
     openWhatsApp(r.telefono || "", buildConfirmMsg(r));
     void setStatus(r.id, "CONFERMATA");
@@ -409,6 +372,13 @@ export default function PannelloAdmin() {
     if (loggedIn) loadRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedIn]);
+
+  // ✅ se NON sei loggato -> rimanda al login nuovo
+  useEffect(() => {
+    if (!checking && !loggedIn) {
+      router.replace("/pannello/login");
+    }
+  }, [checking, loggedIn, router]);
 
   const styles: Record<string, CSSProperties> = {
     page: {
@@ -519,27 +489,6 @@ export default function PannelloAdmin() {
     panelTitle: { fontWeight: 1000, letterSpacing: 0.2 },
     body: { padding: 14 },
 
-    loginBox: {
-      maxWidth: 520,
-      margin: "10px auto 0",
-      padding: 14,
-      borderRadius: 16,
-      border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.92)",
-    },
-    label: { fontWeight: 1000, opacity: 0.95, display: "block", marginBottom: 8 },
-    input: {
-      width: "100%",
-      padding: "12px 12px",
-      borderRadius: 12,
-      border: "1px solid rgba(15,23,42,0.14)",
-      background: "rgba(255,255,255,1)",
-      color: "rgba(15,23,42,0.92)",
-      outline: "none",
-      fontSize: 15,
-      fontWeight: 900,
-    },
-    helper: { marginTop: 10, opacity: 0.8, fontSize: 13, lineHeight: 1.35 },
     error: {
       marginTop: 10,
       padding: "10px 12px",
@@ -720,44 +669,20 @@ export default function PannelloAdmin() {
 
         <div style={styles.panel}>
           <div style={styles.panelHeader}>
-            <div style={styles.panelTitle}>{loggedIn ? "Prenotazioni" : "Login Admin"}</div>
-            <div style={{ opacity: 0.85, fontSize: 12 }}>
-              {loggedIn ? "Conferma/Annulla → apre WhatsApp con messaggio pronto" : ""}
-            </div>
+            <div style={styles.panelTitle}>{loggedIn ? "Prenotazioni" : "Accesso"}</div>
+            <div style={{ opacity: 0.85, fontSize: 12 }}>{loggedIn ? "Conferma/Annulla → apre WhatsApp con messaggio pronto" : ""}</div>
           </div>
 
           <div style={styles.body}>
             {checking ? (
               <div style={{ opacity: 0.8 }}>Controllo sessione…</div>
             ) : !loggedIn ? (
-              <div style={styles.loginBox}>
-                <form onSubmit={login}>
-                  <label style={styles.label}>Password admin</label>
-                  <input
-                    style={styles.input}
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Inserisci password"
-                    autoComplete="current-password"
-                  />
-
-                  <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
-                    <button type="submit" style={styles.btnPrimary}>
-                      Entra
-                    </button>
-                    <button type="button" style={styles.btn} onClick={checkMe}>
-                      Rileva sessione
-                    </button>
-                  </div>
-
-                  {authError && <div style={styles.error}>{authError}</div>}
-
-                  <div style={styles.helper}>
-                    Se non entra: controlla in <b>.env.local</b> che <b>ADMIN_PASSWORD</b> e <b>ADMIN_SESSION_SECRET</b> esistano,
-                    poi riavvia <b>npm run dev</b>.
-                  </div>
-                </form>
+              // ✅ NIENTE login qui: solo redirect al login nuovo
+              <div style={{ opacity: 0.8 }}>
+                Reindirizzo al login…
+                <button style={{ ...styles.btn, marginLeft: 10 }} onClick={() => router.replace("/pannello/login")}>
+                  Vai al login
+                </button>
               </div>
             ) : (
               <>
@@ -784,7 +709,7 @@ export default function PannelloAdmin() {
 
                       {dayMode === "DATA" && (
                         <input
-                          style={{ ...styles.input, width: 170 }}
+                          style={{ width: 170, padding: "12px 12px", borderRadius: 12, border: "1px solid rgba(15,23,42,0.14)" }}
                           type="date"
                           value={pickDate}
                           onChange={(e) => setPickDate(e.target.value)}
