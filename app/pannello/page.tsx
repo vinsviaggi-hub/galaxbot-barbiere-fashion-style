@@ -24,8 +24,45 @@ function s(v: any) {
 }
 
 function normalizePhone(raw: string) {
-  // accetta "327 123..." o "+39..." ecc
   return s(raw).replace(/[^\d+]/g, "");
+}
+
+// ✅ prova a rendere "327..." -> "39..." (Italia) quando manca prefisso
+function phoneForWhatsApp(raw: string) {
+  let p = normalizePhone(raw).replace("+", "").trim();
+  if (!p) return "";
+  if (p.startsWith("00")) p = p.slice(2);
+
+  // se non ha prefisso e sembra italiano (10 cifre), aggiungi 39
+  if (!p.startsWith("39") && /^\d{10}$/.test(p)) p = `39${p}`;
+
+  return p;
+}
+
+function isMobileUA() {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+}
+
+// ✅ "12:30" ok, ISO "1899-12-30T..." -> "HH:mm"
+function normalizeTime(value: any) {
+  const str = s(value).trim();
+  if (!str) return "";
+  if (/^\d{2}:\d{2}$/.test(str)) return str;
+
+  // prova a prendere HH:mm dentro una stringa più lunga
+  const m = /(\d{1,2}):(\d{2})/.exec(str);
+  if (m) return `${String(Number(m[1])).padStart(2, "0")}:${m[2]}`;
+
+  // prova parse date
+  const d = new Date(str);
+  if (Number.isFinite(d.getTime())) {
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+
+  return str;
 }
 
 function toDateISO(value: any): string {
@@ -110,21 +147,37 @@ function buildStatusWaText(r: OrderRow, newStatus: "CONFERMATO" | "CONSEGNATO" |
   return `❌ ANNULLATO\n${base}\nPurtroppo non riusciamo a gestire l’ordine ora.`;
 }
 
-function buildWaHref(phoneRaw: string, text: string) {
-  const phone = normalizePhone(phoneRaw).replace("+", "");
+function buildWhatsAppUrl(phoneRaw: string, text: string) {
+  const phone = phoneForWhatsApp(phoneRaw);
   if (!phone) return "";
-  // più affidabile di wa.me su desktop/web
-  const url = new URL("https://api.whatsapp.com/send");
+
+  // ✅ mobile: deep link (apre app)
+  if (isMobileUA()) {
+    return `whatsapp://send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
+  }
+
+  // ✅ desktop: web
+  const url = new URL("https://web.whatsapp.com/send");
   url.searchParams.set("phone", phone);
   url.searchParams.set("text", text);
   return url.toString();
 }
 
-function openWhatsApp(url: string) {
-  if (!url) return;
-  const w = window.open(url, "_blank", "noreferrer");
-  // fallback se popup bloccato
-  if (!w) window.location.href = url;
+function openWhatsAppAndReturn(waUrl: string) {
+  if (!waUrl) return;
+  const returnUrl = window.location.href;
+
+  if (isMobileUA()) {
+    // Vai su WhatsApp, poi quando torni al browser ti ritrovi già sul pannello
+    window.location.href = waUrl;
+    setTimeout(() => {
+      window.location.href = returnUrl;
+    }, 900);
+    return;
+  }
+
+  const w = window.open(waUrl, "_blank", "noreferrer");
+  if (!w) window.location.href = waUrl;
 }
 
 export default function PannelloOrdiniPalaPizza() {
@@ -161,7 +214,6 @@ export default function PannelloOrdiniPalaPizza() {
       const list: any[] = Array.isArray(data.rows) ? data.rows : [];
 
       const parsed: OrderRow[] = list.map((item: any, idx: number) => {
-        // Timestamp|Nome|Telefono|Tipo|Data|Ora|Allergeni|Ordine|Indirizzo|Stato|Bot o Manuale|Note|ID
         const dataISO = toDateISO(pick(item, 4, ["Data", "date", "dataISO", "dataIso", "data"]));
         const id = s(pick(item, 12, ["ID", "id"])).trim();
 
@@ -172,7 +224,7 @@ export default function PannelloOrdiniPalaPizza() {
           telefono: s(pick(item, 2, ["Telefono", "phone", "telefono"])).trim(),
           tipo: s(pick(item, 3, ["Tipo", "type", "tipo"])).trim().toUpperCase() || "TAVOLO",
           dataISO,
-          ora: s(pick(item, 5, ["Ora", "time", "ora"])).trim(),
+          ora: normalizeTime(pick(item, 5, ["Ora", "time", "ora"])),
           allergeni: s(pick(item, 6, ["Allergeni", "allergens", "allergeni"])).trim(),
           ordine: s(pick(item, 7, ["Ordine", "order", "ordine"])).trim(),
           indirizzo: s(pick(item, 8, ["Indirizzo", "address", "indirizzo"])).trim(),
@@ -239,17 +291,26 @@ export default function PannelloOrdiniPalaPizza() {
   }
 
   async function statusAndWhatsapp(r: OrderRow, newStatus: "CONFERMATO" | "CONSEGNATO" | "ANNULLATO") {
-    const waText = `${buildStatusWaText(r, newStatus)}\n\n— Stato: ${newStatus}`;
-    const waHref = buildWaHref(r.telefono, waText);
+    const waText = buildStatusWaText(r, newStatus);
+    const waHref = buildWhatsAppUrl(r.telefono, waText);
 
-    // apro WA subito (evita blocchi popup)
-    if (waHref) openWhatsApp(waHref);
-
+    // ✅ prima apri WhatsApp, poi aggiorna stato
+    if (waHref) openWhatsAppAndReturn(waHref);
     await setStatus(r.id, newStatus);
   }
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ quando torni dalla app WhatsApp al browser, ricarica gli ordini
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
