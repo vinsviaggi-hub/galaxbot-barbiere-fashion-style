@@ -1,6 +1,8 @@
+// app/components/FastBookingForm.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { getBusinessConfig } from "@/app/config/business";
 
 type AvailabilityOk = { ok: true; freeSlots: string[] };
 type AvailabilityErr = { ok: false; error: string };
@@ -10,14 +12,8 @@ type CreateOk = { ok: true; message?: string };
 type CreateErr = { ok: false; error: string; conflict?: boolean };
 type CreateResponse = CreateOk | CreateErr;
 
-const SERVICES = [
-  "Taglio uomo",
-  "Barba",
-  "Taglio + barba",
-  "Sfumatura",
-  "Bimbo",
-  "Styling",
-];
+// ✅ fallback: se non definisci servicesList nel business.ts, usa questi
+const SERVICES_FALLBACK = ["Taglio uomo", "Barba", "Taglio + barba", "Sfumatura", "Bimbo", "Styling"];
 
 function toISODate(d: Date) {
   const y = d.getFullYear();
@@ -33,11 +29,41 @@ function prettyDate(iso: string) {
   return `${d}/${m}/${y}`;
 }
 
+function hexToRgb(hex?: string) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return { r, g, b };
+}
+function rgba(hex: string, a: number) {
+  const c = hexToRgb(hex);
+  if (!c) return `rgba(212,175,55,${a})`; // gold fallback
+  return `rgba(${c.r},${c.g},${c.b},${a})`;
+}
+
 export default function FastBookingForm() {
+  const biz = useMemo(() => {
+    try {
+      return getBusinessConfig() as any;
+    } catch {
+      return {} as any;
+    }
+  }, []);
+
+  // ✅ servizi dal config (se presenti) con fallback
+  const servicesList: string[] =
+    Array.isArray(biz?.servicesList) && biz.servicesList.length ? biz.servicesList : SERVICES_FALLBACK;
+
+  // 🎨 tema coerente con landing (oro/rosso)
+  const gold = biz?.theme?.primary || "#D4AF37";
+  const red = biz?.theme?.danger || "#EF4444";
+
   const todayISO = useMemo(() => toISODate(new Date()), []);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [service, setService] = useState(SERVICES[0]);
+  const [service, setService] = useState(servicesList[0] || SERVICES_FALLBACK[0]);
   const [dateISO, setDateISO] = useState(todayISO);
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
@@ -67,13 +93,11 @@ export default function FastBookingForm() {
 
       if (!data || typeof data !== "object" || !("ok" in data)) {
         setSlotsMsg("Risposta non valida dal server (availability).");
-        setLoadingSlots(false);
         return;
       }
 
       if (!data.ok) {
         setSlotsMsg(data.error || "Errore nel recupero disponibilità.");
-        setLoadingSlots(false);
         return;
       }
 
@@ -114,7 +138,6 @@ export default function FastBookingForm() {
 
     setSubmitting(true);
     try {
-      // ✅ QUI ERA IL PROBLEMA: prima chiamava /api/barber-booking (404)
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,7 +163,6 @@ export default function FastBookingForm() {
       if (!data.ok) {
         setResultType(data.conflict ? "warn" : "err");
         setResultMsg(data.error || "Errore durante la prenotazione.");
-        // se conflitto, ricarico disponibilità per aggiornare la tendina
         if (data.conflict) {
           await loadAvailability(dateISO);
         }
@@ -150,12 +172,10 @@ export default function FastBookingForm() {
       setResultType("ok");
       setResultMsg("✅ Prenotazione inviata! Ti aspettiamo in barberia.");
 
-      // reset leggero (lascia data/servizio)
       setName("");
       setPhone("");
       setNotes("");
 
-      // ricarica disponibilità: lo slot appena preso deve sparire
       await loadAvailability(dateISO);
     } catch {
       setResultType("err");
@@ -169,7 +189,9 @@ export default function FastBookingForm() {
     card: {
       borderRadius: 18,
       border: "1px solid rgba(255,255,255,0.16)",
-      background: "linear-gradient(180deg, rgba(11,28,68,0.72), rgba(11,28,68,0.45))",
+      background:
+        `radial-gradient(700px 260px at 20% 0%, ${rgba(gold, 0.16)}, transparent 62%),` +
+        `linear-gradient(180deg, rgba(11,28,68,0.72), rgba(11,28,68,0.45))`,
       padding: 16,
       boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
     },
@@ -188,18 +210,19 @@ export default function FastBookingForm() {
       fontSize: 15,
     },
     row2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
-    row3: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },
+
     btn: {
       width: "100%",
-      border: "0",
       borderRadius: 16,
       padding: "14px 14px",
-      fontWeight: 900,
+      fontWeight: 1000,
       cursor: "pointer",
-      color: "rgba(255,255,255,0.95)",
-      background: "linear-gradient(90deg, #3aa0ff, #ff3b3b)",
-      boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
+      border: `1px solid ${rgba(gold, 0.45)}`,
+      color: "#0A0F1A",
+      background: `linear-gradient(90deg, ${rgba(gold, 0.98)} 0%, ${rgba(gold, 0.70)} 65%, rgba(255,255,255,0.14) 140%)`,
+      boxShadow: `0 18px 46px ${rgba(gold, 0.16)}`,
     },
+
     msgOk: {
       marginTop: 10,
       padding: "10px 12px",
@@ -214,7 +237,7 @@ export default function FastBookingForm() {
       marginTop: 10,
       padding: "10px 12px",
       borderRadius: 12,
-      background: "rgba(255, 190, 0, 0.16)",
+      background: `linear-gradient(90deg, ${rgba(red, 0.18)}, rgba(255,190,0,0.14))`,
       border: "1px solid rgba(255,255,255,0.16)",
       color: "rgba(255,255,255,0.92)",
       fontSize: 13,
@@ -264,11 +287,11 @@ export default function FastBookingForm() {
           />
         </div>
 
-        <div style={styles.row2}>
+        <div style={styles.row2} className="fb-row2">
           <div>
             <div style={styles.label}>Servizio *</div>
             <select style={styles.input} value={service} onChange={(e) => setService(e.target.value)}>
-              {SERVICES.map((s) => (
+              {servicesList.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -285,6 +308,8 @@ export default function FastBookingForm() {
               onChange={(e) => {
                 const v = e.target.value;
                 setDateISO(v);
+                setResultMsg("");
+                setResultType("");
                 loadAvailability(v);
               }}
               min={todayISO}
@@ -293,7 +318,7 @@ export default function FastBookingForm() {
           </div>
         </div>
 
-        <div style={styles.row2}>
+        <div style={styles.row2} className="fb-row2">
           <div>
             <div style={styles.label}>Ora disponibile *</div>
             <select
@@ -328,8 +353,12 @@ export default function FastBookingForm() {
           </div>
         </div>
 
-        <button type="submit" style={styles.btn} disabled={submitting}>
-          {submitting ? "Invio in corso…" : "Conferma prenotazione"}
+        <button
+          type="submit"
+          style={{ ...styles.btn, opacity: submitting ? 0.75 : 1 }}
+          disabled={submitting}
+        >
+          {submitting ? "Invio in corso…" : "✂️ Conferma prenotazione"}
         </button>
 
         {resultMsg ? (
@@ -338,6 +367,15 @@ export default function FastBookingForm() {
           </div>
         ) : null}
       </form>
+
+      {/* ✅ Mobile: le 2 colonne diventano 1 */}
+      <style>{`
+        @media (max-width: 560px) {
+          .fb-row2 {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }

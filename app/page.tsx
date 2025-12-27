@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import React, { useMemo, useRef, useState } from "react";
@@ -5,6 +6,20 @@ import ChatBox from "./components/chatbox";
 import FastBookingForm from "./components/FastBookingForm";
 import CancelBookingForm from "./components/CancelBookingForm";
 import { getBusinessConfig } from "./config/business";
+
+function hexToRgb(hex?: string) {
+  const h = String(hex || "").replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return { r, g, b };
+}
+function rgba(hex: string, a: number) {
+  const c = hexToRgb(hex);
+  if (!c) return `rgba(212,175,55,${a})`;
+  return `rgba(${c.r},${c.g},${c.b},${a})`;
+}
 
 export default function HomePage() {
   const biz = useMemo(() => {
@@ -15,11 +30,11 @@ export default function HomePage() {
     }
   }, []);
 
-  // Fallback (se config manca qualcosa)
-  const brandTop = biz?.labelTop ?? "GALAXBOT AI · BARBER SHOP";
-  const title = biz?.title ?? "Idee per la Testa";
+  // ✅ usa i campi corretti del business.ts
+  const brandTop = biz?.badgeTop ?? "GALAXBOT AI · BARBER SHOP";
+  const title = biz?.headline ?? "Idee per la Testa 💈";
   const subtitle =
-    biz?.subtitle ??
+    biz?.subheadline ??
     "Un assistente virtuale che gestisce richieste, prenotazioni e cancellazioni per il tuo barber shop, 24 ore su 24.";
 
   const services = biz?.servicesShort ?? "Taglio, barba, sfumature, styling, bimbi";
@@ -32,7 +47,6 @@ export default function HomePage() {
 
   const [showHelp, setShowHelp] = useState(false);
 
-  // ref con non-null assertion per evitare rogne TypeScript sui ref
   const refBook = useRef<HTMLDivElement>(null!);
   const refCancel = useRef<HTMLDivElement>(null!);
 
@@ -40,35 +54,48 @@ export default function HomePage() {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  // 🎨 Barber theme
+  const gold = biz?.theme?.primary || "#D4AF37";
+  const red = biz?.theme?.danger || "#EF4444";
+  const deep = "#070A0F";
+  const slate = "#0B1220";
+
   const styles: Record<string, React.CSSProperties> = {
     page: {
       minHeight: "100vh",
       background:
-        "radial-gradient(900px 600px at 18% 10%, rgba(120,170,255,0.35), transparent 55%), radial-gradient(900px 600px at 80% 20%, rgba(255,90,90,0.28), transparent 55%), linear-gradient(180deg, #061a3a 0%, #062a6a 55%, #041534 100%)",
+        `radial-gradient(900px 600px at 18% 10%, ${rgba(gold, 0.22)}, transparent 58%),` +
+        `radial-gradient(900px 600px at 82% 18%, ${rgba(red, 0.14)}, transparent 58%),` +
+        "radial-gradient(900px 600px at 50% 120%, rgba(255,255,255,0.06), transparent 62%)," +
+        `linear-gradient(180deg, ${deep} 0%, ${slate} 60%, ${deep} 100%)`,
       color: "rgba(255,255,255,0.92)",
       padding: "26px 14px 40px",
     },
     shell: { maxWidth: 980, margin: "0 auto" },
+
     topPill: {
       display: "inline-flex",
       alignItems: "center",
       gap: 10,
       padding: "7px 12px",
       borderRadius: 999,
-      background: "rgba(255,255,255,0.10)",
-      border: "1px solid rgba(255,255,255,0.14)",
+      background: "rgba(255,255,255,0.06)",
+      border: `1px solid ${rgba(gold, 0.22)}`,
       backdropFilter: "blur(10px)",
       fontSize: 12,
-      letterSpacing: 0.8,
+      letterSpacing: 0.9,
       textTransform: "uppercase",
+      boxShadow: `0 10px 30px ${rgba(gold, 0.08)}`,
     },
+
     hero: { marginTop: 12, padding: "14px 2px 10px" },
     h1: {
       fontSize: 44,
       lineHeight: 1.05,
       margin: "8px 0 10px",
-      fontWeight: 800,
-      textShadow: "0 12px 40px rgba(0,0,0,0.35)",
+      fontWeight: 900,
+      letterSpacing: -0.6,
+      textShadow: `0 14px 50px rgba(0,0,0,0.55), 0 0 24px ${rgba(gold, 0.10)}`,
     },
     subtitle: {
       fontSize: 16,
@@ -76,73 +103,98 @@ export default function HomePage() {
       opacity: 0.9,
       maxWidth: 760,
       marginBottom: 14,
+      color: "rgba(255,255,255,0.86)",
     },
+
     actionsRow: { display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 },
     btn: {
       cursor: "pointer",
       padding: "10px 14px",
       borderRadius: 12,
-      fontWeight: 700,
+      fontWeight: 900,
       fontSize: 14,
       color: "rgba(255,255,255,0.95)",
-      background: "rgba(255,255,255,0.14)",
-      border: "1px solid rgba(255,255,255,0.16)",
-      borderLeft: "1px solid rgba(255,255,255,0.10)",
-      transition: "transform .08s ease, filter .08s ease",
-    },
-    btnPrimary: {
-      background: "linear-gradient(90deg, #ff4b4b 0%, #ff7a3d 55%, #ffcc5c 120%)",
-      color: "#07142a",
-    },
-    btnBlue: {
-      background: "linear-gradient(90deg, #2f7dff 0%, #49c6ff 120%)",
-      color: "#061a3a",
-    },
-    smallHint: { marginTop: 10, fontSize: 13, opacity: 0.85 },
-    grid: { marginTop: 18, display: "grid", gridTemplateColumns: "1fr", gap: 16 },
-    card: {
-      borderRadius: 18,
       background: "rgba(255,255,255,0.08)",
       border: "1px solid rgba(255,255,255,0.14)",
-      boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
+    },
+
+    // ✅ PRENOTA = ORO
+    btnGold: {
+      background: `linear-gradient(90deg, ${rgba(gold, 0.98)} 0%, ${rgba(gold, 0.70)} 60%, rgba(255,255,255,0.16) 140%)`,
+      color: "#0A0F1A",
+      border: `1px solid ${rgba(gold, 0.44)}`,
+      boxShadow: `0 18px 46px ${rgba(gold, 0.16)}`,
+    },
+
+    // ✅ ANNULLA = ROSSO
+    btnRed: {
+      background: `linear-gradient(90deg, ${rgba(red, 0.95)} 0%, ${rgba(red, 0.65)} 120%)`,
+      color: "#0A0F1A",
+      border: `1px solid ${rgba(red, 0.38)}`,
+      boxShadow: `0 18px 46px ${rgba(red, 0.10)}`,
+    },
+
+    smallHint: { marginTop: 10, fontSize: 13, opacity: 0.86 },
+
+    grid: { marginTop: 18, display: "grid", gridTemplateColumns: "1fr", gap: 16 },
+
+    card: {
+      borderRadius: 18,
+      background: "linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.06) 100%)",
+      border: `1px solid rgba(255,255,255,0.12)`,
+      boxShadow: `0 22px 70px rgba(0,0,0,0.38), 0 14px 44px ${rgba(gold, 0.06)}`,
       overflow: "hidden",
     },
     cardInner: { padding: "16px 16px 14px" },
+
     cardTitle: {
       fontSize: 18,
-      fontWeight: 800,
+      fontWeight: 900,
       margin: 0,
       display: "flex",
       alignItems: "center",
       gap: 10,
+      letterSpacing: 0.2,
     },
     cardSub: { marginTop: 6, fontSize: 13, opacity: 0.86, lineHeight: 1.45 },
     list: { marginTop: 10, marginBottom: 0, paddingLeft: 18, lineHeight: 1.6 },
     divider: { height: 1, background: "rgba(255,255,255,0.10)" },
+
     helpTop: {
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
     },
+
+    // ✅ APRI CHAT = ORO
     helpBtn: {
       cursor: "pointer",
       padding: "10px 14px",
       borderRadius: 12,
-      fontWeight: 800,
+      fontWeight: 900,
       fontSize: 14,
       border: "0",
       background: showHelp
-        ? "rgba(255,255,255,0.14)"
-        : "linear-gradient(90deg, #2f7dff 0%, #49c6ff 120%)",
-      color: showHelp ? "rgba(255,255,255,0.95)" : "#061a3a",
+        ? "rgba(255,255,255,0.10)"
+        : `linear-gradient(90deg, ${rgba(gold, 0.98)} 0%, ${rgba(gold, 0.70)} 120%)`,
+      color: showHelp ? "rgba(255,255,255,0.95)" : "#0A0F1A",
+      boxShadow: showHelp ? "none" : `0 18px 46px ${rgba(gold, 0.14)}`,
     },
+
     footer: {
       marginTop: 18,
       textAlign: "center",
-      opacity: 0.75,
+      opacity: 0.72,
       fontSize: 12,
       padding: "10px 0 2px",
+    },
+
+    heroRule: {
+      marginTop: 14,
+      height: 1,
+      width: "100%",
+      background: `linear-gradient(90deg, transparent 0%, ${rgba(gold, 0.55)} 20%, ${rgba(gold, 0.10)} 70%, transparent 100%)`,
     },
   };
 
@@ -160,12 +212,14 @@ export default function HomePage() {
           <p style={styles.subtitle}>{subtitle}</p>
 
           <div style={styles.actionsRow}>
-            <button style={{ ...styles.btn, ...styles.btnPrimary }} onClick={() => scrollTo(refBook)}>
+            <button style={{ ...styles.btn, ...styles.btnGold }} onClick={() => scrollTo(refBook)}>
               Prenota ora
             </button>
-            <button style={{ ...styles.btn, ...styles.btnBlue }} onClick={() => scrollTo(refCancel)}>
+
+            <button style={{ ...styles.btn, ...styles.btnRed }} onClick={() => scrollTo(refCancel)}>
               Annulla
             </button>
+
             <button style={styles.btn} onClick={() => setShowHelp((v) => !v)}>
               {showHelp ? "Chiudi assistenza" : "Assistenza"}
             </button>
@@ -174,6 +228,8 @@ export default function HomePage() {
           <div style={styles.smallHint}>
             Prenoti in pochi secondi: scegli data + ora disponibile. Se ti serve, annulli con gli stessi dati.
           </div>
+
+          <div style={styles.heroRule} />
         </header>
 
         <section style={styles.grid}>
@@ -210,9 +266,8 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ASSISTENZA (Chat a pulsante) */}
+          {/* ASSISTENZA */}
           <div style={styles.card}>
-            {/* ✅ qui era il bug: avevi due "style" nello stesso div */}
             <div style={{ ...styles.cardInner, paddingBottom: 10 }}>
               <div style={styles.helpTop}>
                 <div>
@@ -277,6 +332,16 @@ export default function HomePage() {
 
         <footer style={styles.footer}>Powered by GalaxBot AI</footer>
       </div>
+
+      {/* ✅ Mobile: bottoni comodi + titolo che scala */}
+      <style>{`
+        @media (max-width: 520px) {
+          h1 { font-size: 34px !important; }
+        }
+        @media (max-width: 480px) {
+          button { width: 100%; }
+        }
+      `}</style>
     </main>
   );
 }
