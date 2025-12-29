@@ -77,6 +77,25 @@ function clampInt(n: number, min: number, max: number) {
   return Math.min(Math.max(Math.floor(n), min), max);
 }
 
+/**
+ * ✅ Richiesta prenotazione: in UI vogliamo "RICHIESTA"
+ * ma lo script attuale usa ancora "NUOVA".
+ * Quindi traduciamo:
+ * - RICHIESTA -> NUOVA (verso script)
+ * - NUOVA -> RICHIESTA (verso UI)
+ */
+function toScriptStatus(input: string) {
+  const s = String(input || "").trim().toUpperCase();
+  if (s === "RICHIESTA") return "NUOVA";
+  return s;
+}
+
+function toUiStatus(input: string) {
+  const s = String(input || "").trim().toUpperCase();
+  if (s === "NUOVA") return "RICHIESTA";
+  return s;
+}
+
 export async function GET(req: Request) {
   try {
     if (!isLoggedIn(req)) return jsonNoStore({ ok: false, error: "Non autorizzato." }, { status: 401 });
@@ -96,7 +115,18 @@ export async function GET(req: Request) {
       );
     }
 
-    return jsonNoStore({ ok: true, rows: data.rows ?? [], count: data.count ?? (data.rows?.length ?? 0) }, { status: 200 });
+    // se lo script ritorna "NUOVA", in UI la mostriamo come "RICHIESTA"
+    const rows = Array.isArray(data.rows)
+      ? data.rows.map((r: any) => ({
+          ...r,
+          status: toUiStatus(r?.status),
+        }))
+      : [];
+
+    return jsonNoStore(
+      { ok: true, rows, count: data.count ?? (rows.length ?? 0) },
+      { status: 200 }
+    );
   } catch (err: any) {
     return jsonNoStore({ ok: false, error: `Errore interno: ${String(err?.message || err)}` }, { status: 500 });
   }
@@ -108,17 +138,25 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null);
     const id = String(body?.id || "").trim();
-    const status = String(body?.status || "").trim().toUpperCase();
+    const statusRaw = String(body?.status || "").trim().toUpperCase();
 
     if (!id) return jsonNoStore({ ok: false, error: "ID mancante." }, { status: 400 });
-    if (!["NUOVA", "CONFERMATA", "ANNULLATA"].includes(status)) {
-      return jsonNoStore({ ok: false, error: "Status non valido. Usa: NUOVA / CONFERMATA / ANNULLATA" }, { status: 400 });
+
+    // ✅ ora supportiamo anche "RICHIESTA"
+    const allowed = ["RICHIESTA", "NUOVA", "CONFERMATA", "ANNULLATA"];
+    if (!allowed.includes(statusRaw)) {
+      return jsonNoStore(
+        { ok: false, error: "Status non valido. Usa: RICHIESTA / CONFERMATA / ANNULLATA" },
+        { status: 400 }
+      );
     }
+
+    const statusForScript = toScriptStatus(statusRaw);
 
     const { data, httpStatus } = await callGoogleScript({
       action: "admin_set_status",
       id,
-      status,
+      status: statusForScript,
     });
 
     if (!data?.ok) {
@@ -128,7 +166,12 @@ export async function POST(req: Request) {
       );
     }
 
-    return jsonNoStore({ ok: true, status: data.status ?? status, message: data.message ?? "Stato aggiornato." }, { status: 200 });
+    const returned = toUiStatus(data.status ?? statusForScript);
+
+    return jsonNoStore(
+      { ok: true, status: returned, message: data.message ?? "Stato aggiornato." },
+      { status: 200 }
+    );
   } catch (err: any) {
     return jsonNoStore({ ok: false, error: `Errore interno: ${String(err?.message || err)}` }, { status: 500 });
   }

@@ -19,8 +19,7 @@ function getEnv(name: string) {
 async function safeJson(res: Response) {
   const text = await res.text().catch(() => "");
   try {
-    const parsed = JSON.parse(text);
-    return parsed;
+    return JSON.parse(text);
   } catch {
     return {
       ok: false,
@@ -52,7 +51,6 @@ async function callGoogleScript(payload: Record<string, any>) {
 
     const data = await safeJson(res);
 
-    // Apps Script può restituire _status nel payload
     const statusFromPayload = Number((data as any)?._status);
     const httpStatus = Number.isFinite(statusFromPayload) ? statusFromPayload : res.status;
 
@@ -79,34 +77,51 @@ function normalizeDateFromReq(req: Request, bodyDate?: any) {
   return fromBody || fromQuery;
 }
 
+function normalizeModeFromReq(req: Request, bodyMode?: any) {
+  const { searchParams } = new URL(req.url);
+  const fromQuery = String(searchParams.get("mode") || "").trim().toUpperCase();
+  const fromBody = String(bodyMode || "").trim().toUpperCase();
+  const mode = fromBody || fromQuery;
+
+  // DEFAULT: REQUEST per 4 zampe
+  if (mode === "BOOKING") return "BOOKING";
+  return "REQUEST";
+}
+
 async function handle(req: Request, bodyMaybe?: any) {
   const date = normalizeDateFromReq(req, bodyMaybe?.date);
+  const mode = normalizeModeFromReq(req, bodyMaybe?.mode);
 
   if (!date || !isIsoDate(date)) {
-    return jsonNoStore(
-      { ok: false, error: "Parametro 'date' mancante o non valido (YYYY-MM-DD)." },
-      { status: 400 }
-    );
+    return jsonNoStore({ ok: false, error: "Parametro 'date' mancante o non valido (YYYY-MM-DD)." }, { status: 400 });
   }
 
   const { data, httpStatus } = await callGoogleScript({
     action: "get_availability",
     date,
+
+    // ✅ per 4 zampe: disponibilità in modalità richiesta
+    requestMode: mode === "REQUEST",
+    mode,
   });
 
   if (!data?.ok) {
     return jsonNoStore(
-      {
-        ok: false,
-        error: data?.error || "Errore disponibilità.",
-        details: data?.details,
-      },
+      { ok: false, error: data?.error || "Errore disponibilità.", details: data?.details },
       { status: Number(httpStatus) || 500 }
     );
   }
 
   const freeSlots = Array.isArray(data.freeSlots) ? data.freeSlots : [];
-  return jsonNoStore({ ok: true, date, freeSlots }, { status: 200 });
+  return jsonNoStore(
+    {
+      ok: true,
+      date,
+      mode,
+      freeSlots,
+    },
+    { status: 200 }
+  );
 }
 
 export async function GET(req: Request) {

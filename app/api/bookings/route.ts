@@ -16,6 +16,15 @@ function getEnv(name: string) {
   return (process.env[name] ?? "").trim();
 }
 
+// accetta YYYY-MM-DD oppure DD/MM/YYYY
+function normalizeDateToIso(input: string) {
+  const s = String(input || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return "";
+}
+
 function isIsoDate(s: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
 }
@@ -61,7 +70,6 @@ async function callScript(payload: Record<string, any>) {
 
     const data = await safeJson(res);
 
-    // se lo script mette _status nel payload, usiamo quello
     const statusFromPayload = Number((data as any)?._status);
     const httpStatus = Number.isFinite(statusFromPayload) ? statusFromPayload : res.status;
 
@@ -85,14 +93,15 @@ export async function POST(req: Request) {
     if (!action) return jsonNoStore({ ok: false, error: "Azione mancante." }, { status: 400 });
 
     // =========================
-    // CREATE BOOKING
+    // CREATE BOOKING (richiesta)
     // =========================
     if (action === "create_booking") {
       const ownerName = String(body?.ownerName || body?.name || "").trim();
       const dogName = String(body?.dogName || "").trim();
       const phone = normalizePhone(String(body?.phone || "").trim());
       const service = String(body?.service || "").trim();
-      const date = String(body?.date || "").trim(); // YYYY-MM-DD
+      const dateRaw = String(body?.date || "").trim();
+      const date = normalizeDateToIso(dateRaw); // YYYY-MM-DD
       const time = String(body?.time || "").trim(); // HH:mm
       const notes = String(body?.notes || "").trim();
       const taglia = String(body?.taglia || "").trim();
@@ -103,7 +112,7 @@ export async function POST(req: Request) {
         return jsonNoStore(
           {
             ok: false,
-            error: "Campi obbligatori: ownerName, dogName, phone, taglia, pelo, service, date(YYYY-MM-DD), time(HH:mm).",
+            error: "Campi obbligatori: ownerName, dogName, phone, taglia, pelo, service, date(YYYY-MM-DD o DD/MM/YYYY), time(HH:mm).",
           },
           { status: 400 }
         );
@@ -137,25 +146,24 @@ export async function POST(req: Request) {
         );
       }
 
-      return jsonNoStore(
-        { ok: true, message: data?.message || "Prenotazione registrata.", id: data?.id },
-        { status: 200 }
-      );
+      return jsonNoStore({ ok: true, message: data?.message || "Richiesta registrata.", id: data?.id }, { status: 200 });
     }
 
     // =========================
-    // CANCEL BOOKING
+    // CANCEL BOOKING (obbligatorio: cane + padrone)
     // =========================
     if (action === "cancel_booking") {
       const phone = normalizePhone(String(body?.phone || "").trim());
-      const date = String(body?.date || "").trim(); // YYYY-MM-DD
+      const dateRaw = String(body?.date || "").trim();
+      const date = normalizeDateToIso(dateRaw);
       const time = String(body?.time || "").trim(); // HH:mm
-      const ownerName = String(body?.ownerName || "").trim();
+
+      const ownerName = String(body?.ownerName || body?.name || "").trim();
       const dogName = String(body?.dogName || "").trim();
 
-      if (!phone || !isIsoDate(date) || !isTime(time)) {
+      if (!ownerName || !dogName || !phone || !isIsoDate(date) || !isTime(time)) {
         return jsonNoStore(
-          { ok: false, error: "Per annullare servono telefono, data(YYYY-MM-DD) e ora(HH:mm)." },
+          { ok: false, error: "Per annullare servono: nome padrone, nome cane, telefono, data(YYYY-MM-DD o DD/MM/YYYY) e ora(HH:mm)." },
           { status: 400 }
         );
       }

@@ -12,7 +12,9 @@ type AdminRow = {
   rowNumber?: number;
   timestamp?: string;
 
-  nome?: string;
+  // ✅ dati
+  nome?: string;       // nome proprietario
+  nomeCane?: string;   // nome cane
   telefono?: string;
 
   servizio?: string;
@@ -90,7 +92,7 @@ function hexToRgb(hex?: string) {
 }
 function rgba(hex: string, a: number) {
   const c = hexToRgb(hex);
-  if (!c) return `rgba(37,99,235,${a})`;
+  if (!c) return `rgba(245,179,1,${a})`;
   return `rgba(${c.r},${c.g},${c.b},${a})`;
 }
 
@@ -132,35 +134,36 @@ export default function PannelloAdmin() {
   const head = biz?.headline ?? biz?.title ?? "";
   const panelTitle = head ? `Prenotazioni • ${head}` : "Prenotazioni";
 
-  // Accento usato solo per dettagli UI
-  const accent = biz?.theme?.accent || "#2563EB";
+  // ✅ colori richiesti
+  const GOLD = "#F5B301";
+  const RED = "#EF4444";
+  const accent = GOLD;
 
-  // ✅ NOME: scuro e leggibile
   function nameBadgeStyle(): CSSProperties {
     return {
       display: "inline-flex",
       alignItems: "center",
       padding: "8px 12px",
       borderRadius: 999,
-      border: "1px solid rgba(15,23,42,0.14)",
-      background: "linear-gradient(135deg, rgba(15,23,42,0.06), rgba(15,23,42,0.02))",
+      border: "1px solid rgba(15,23,42,0.12)",
+      background: "linear-gradient(135deg, rgba(15,23,42,0.05), rgba(15,23,42,0.02))",
       color: "rgba(15,23,42,0.92)",
       fontWeight: 1000,
       letterSpacing: 0.2,
       textTransform: "none",
+      gap: 10,
     };
   }
 
-  // barre laterali alterno accent/rosso
   function accentForIndex(i: number) {
-    const isAccent = i % 2 === 0;
+    const isGold = i % 2 === 0;
     const bar: CSSProperties = {
       position: "absolute",
       inset: "0 auto 0 0",
       width: 8,
-      background: isAccent
-        ? `linear-gradient(180deg, ${rgba(accent, 0.75)}, ${rgba(accent, 0.16)})`
-        : "linear-gradient(180deg, rgba(239,68,68,0.72), rgba(239,68,68,0.14))",
+      background: isGold
+        ? `linear-gradient(180deg, ${rgba(GOLD, 0.85)}, ${rgba(GOLD, 0.18)})`
+        : `linear-gradient(180deg, ${rgba(RED, 0.75)}, ${rgba(RED, 0.14)})`,
     };
     return { bar };
   }
@@ -174,14 +177,13 @@ export default function PannelloAdmin() {
       background: type === "ok" ? "rgba(34,197,94,0.14)" : "rgba(239,68,68,0.14)",
       color: "rgba(15,23,42,0.92)",
       fontWeight: 950,
-      boxShadow: "0 16px 40px rgba(0,0,0,0.18)",
+      boxShadow: "0 16px 40px rgba(0,0,0,0.14)",
       maxWidth: 860,
       width: "100%",
       textAlign: "center",
     };
   }
 
-  // ✅ URL sempre diverso (t=...) → riduce riuso “bozza” WhatsApp
   function waLink(phone: string, text: string) {
     const p = safeTel(phone);
     const msg = encodeURIComponent(text);
@@ -191,18 +193,20 @@ export default function PannelloAdmin() {
 
   function buildConfirmMsg(r: AdminRow) {
     const nome = (r.nome || "").trim();
+    const cane = (r.nomeCane || "").trim();
     const data = toITDate(r.dataISO);
     const ora = r.ora || "—";
     const serv = (r.servizio || "appuntamento").toString();
-    return `Ciao${nome ? " " + nome : ""}! ✅ Il tuo appuntamento è CONFERMATO per ${data} alle ${ora} (${serv}). A presto!`;
+    return `Ciao${nome ? " " + nome : ""}! ✅ Confermato per ${data} alle ${ora} (${serv})${cane ? `. Per ${cane}` : ""}. A presto!`;
   }
 
   function buildCancelMsg(r: AdminRow) {
     const nome = (r.nome || "").trim();
+    const cane = (r.nomeCane || "").trim();
     const data = toITDate(r.dataISO);
     const ora = r.ora || "—";
     const serv = (r.servizio || "appuntamento").toString();
-    return `Ciao${nome ? " " + nome : ""}. ❌ Il tuo appuntamento è ANNULLATO (${serv}) del ${data} alle ${ora}. Se vuoi riprenotare, scrivimi qui.`;
+    return `Ciao${nome ? " " + nome : ""}. ❌ Annullato (${serv}) del ${data} alle ${ora}${cane ? ` (per ${cane})` : ""}. Se vuoi riprenotare, scrivimi qui.`;
   }
 
   const [checking, setChecking] = useState(true);
@@ -289,6 +293,14 @@ export default function PannelloAdmin() {
     }
   };
 
+  // ✅ helper: prende valore anche da chiavi strane (tipo "nome cane")
+  function pickAny(obj: any, keys: string[]) {
+    for (const k of keys) {
+      if (obj && obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== "") return obj[k];
+    }
+    return "";
+  }
+
   const loadRows = async () => {
     setLoadingRows(true);
     setRowsError(null);
@@ -303,20 +315,34 @@ export default function PannelloAdmin() {
       }
 
       const list = Array.isArray((data as any).rows) ? (data as any).rows : [];
+
       const normalized: AdminRow[] = list
-        .map((r: any) => ({
-          id: String(r?.id ?? ""),
-          rowNumber: r?.rowNumber,
-          timestamp: r?.timestamp,
-          nome: r?.nome ?? r?.name,
-          telefono: r?.telefono ?? r?.phone,
-          servizio: r?.servizio ?? r?.service,
-          dataISO: r?.dataISO ?? r?.dateISO ?? r?.date,
-          ora: r?.ora ?? r?.time,
-          note: r?.note ?? r?.notes,
-          stato: normStatus(r?.stato ?? r?.status),
-          canale: r?.canale ?? r?.channel,
-        }))
+        .map((r: any) => {
+          const nome = pickAny(r, ["nome", "ownerName", "name", "nome proprietario"]);
+          const nomeCane = pickAny(r, ["nomeCane", "dogName", "nome cane", "cane", "petName"]);
+          const telefono = pickAny(r, ["telefono", "phone"]);
+          const servizio = pickAny(r, ["servizio", "service"]);
+          const dataISO = pickAny(r, ["dataISO", "dateISO", "date"]);
+          const ora = pickAny(r, ["ora", "time"]);
+          const note = pickAny(r, ["note", "notes"]);
+          const canale = pickAny(r, ["canale", "channel"]);
+          const stato = normStatus(pickAny(r, ["stato", "status"]));
+
+          return {
+            id: String(r?.id ?? ""),
+            rowNumber: r?.rowNumber,
+            timestamp: r?.timestamp,
+            nome: String(nome || "").trim(),
+            nomeCane: String(nomeCane || "").trim(),
+            telefono: String(telefono || "").trim(),
+            servizio: String(servizio || "").trim(),
+            dataISO: String(dataISO || "").trim(),
+            ora: String(ora || "").trim(),
+            note: String(note || "").trim(),
+            stato,
+            canale: String(canale || "").trim(),
+          };
+        })
         .filter((x: AdminRow) => x.id);
 
       setRows(normalized);
@@ -369,7 +395,6 @@ export default function PannelloAdmin() {
       return;
     }
     const url = waLink(p, message);
-    // ✅ nuova tab ogni volta → evita “riuso bozza”
     window.open(url, `wa_${Date.now()}`, "noopener,noreferrer");
   }
 
@@ -402,10 +427,10 @@ export default function PannelloAdmin() {
       minHeight: "100vh",
       padding: "18px 12px 34px",
       background:
-        "radial-gradient(900px 520px at 12% 0%, rgba(59,130,246,0.08), transparent 62%)," +
-        "radial-gradient(900px 520px at 88% 8%, rgba(15,23,42,0.06), transparent 62%)," +
+        "radial-gradient(900px 520px at 12% 0%, rgba(245,179,1,0.10), transparent 62%)," +
+        "radial-gradient(900px 520px at 88% 10%, rgba(0,0,0,0.05), transparent 62%)," +
         "radial-gradient(900px 520px at 50% 100%, rgba(148,163,184,0.10), transparent 60%)," +
-        "linear-gradient(180deg, #f6f7f9 0%, #ffffff 56%, #f3f4f6 100%)",
+        "linear-gradient(180deg, #fafbfc 0%, #ffffff 55%, #f5f7fb 100%)",
       color: "rgba(15,23,42,0.92)",
       fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
     },
@@ -414,7 +439,7 @@ export default function PannelloAdmin() {
     header: {
       borderRadius: 18,
       border: "1px solid rgba(15,23,42,0.10)",
-      background: "rgba(255,255,255,0.92)",
+      background: "rgba(255,255,255,0.96)",
       boxShadow: "0 16px 40px rgba(0,0,0,0.08)",
       overflow: "hidden",
     },
@@ -433,8 +458,8 @@ export default function PannelloAdmin() {
       gap: 8,
       padding: "7px 10px",
       borderRadius: 999,
-      border: `1px solid ${rgba(accent, 0.22)}`,
-      background: `${rgba(accent, 0.06)}`,
+      border: `1px solid ${rgba(accent, 0.26)}`,
+      background: `${rgba(accent, 0.10)}`,
       fontSize: 12,
       letterSpacing: 0.6,
       textTransform: "uppercase",
@@ -451,45 +476,50 @@ export default function PannelloAdmin() {
       padding: "8px 10px",
       borderRadius: 999,
       border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.92)",
+      background: "rgba(255,255,255,0.96)",
       fontWeight: 950,
       fontSize: 13,
     },
 
     btnRow: { display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" },
+
+    btnPrimary: {
+      border: `1px solid ${rgba(accent, 0.30)}`,
+      background: `linear-gradient(180deg, ${rgba(accent, 0.95)} 0%, ${rgba(accent, 0.78)} 100%)`,
+      color: "rgba(15,23,42,0.92)",
+      padding: "10px 12px",
+      borderRadius: 12,
+      cursor: "pointer",
+      fontWeight: 1000,
+      boxShadow: "0 10px 26px rgba(0,0,0,0.10)",
+    },
+
+    btnDanger: {
+      border: `1px solid ${rgba(RED, 0.30)}`,
+      background: `linear-gradient(180deg, ${rgba(RED, 0.85)} 0%, ${rgba(RED, 0.70)} 100%)`,
+      color: "white",
+      padding: "10px 12px",
+      borderRadius: 12,
+      cursor: "pointer",
+      fontWeight: 1000,
+      boxShadow: "0 10px 26px rgba(0,0,0,0.10)",
+    },
+
     btn: {
       border: "1px solid rgba(15,23,42,0.14)",
-      background: "rgba(255,255,255,0.92)",
+      background: "rgba(255,255,255,0.96)",
       color: "rgba(15,23,42,0.92)",
       padding: "10px 12px",
       borderRadius: 12,
       cursor: "pointer",
       fontWeight: 950,
-    },
-    btnPrimary: {
-      border: `1px solid ${rgba(accent, 0.22)}`,
-      background: `linear-gradient(90deg, ${rgba(accent, 0.14)}, ${rgba(accent, 0.07)})`,
-      color: "rgba(15,23,42,0.92)",
-      padding: "10px 12px",
-      borderRadius: 12,
-      cursor: "pointer",
-      fontWeight: 1000,
-    },
-    btnDanger: {
-      border: "1px solid rgba(239,68,68,0.24)",
-      background: "rgba(239,68,68,0.08)",
-      color: "rgba(15,23,42,0.92)",
-      padding: "10px 12px",
-      borderRadius: 12,
-      cursor: "pointer",
-      fontWeight: 1000,
     },
 
     panel: {
       marginTop: 12,
       borderRadius: 18,
       border: "1px solid rgba(15,23,42,0.10)",
-      background: "rgba(255,255,255,0.92)",
+      background: "rgba(255,255,255,0.96)",
       boxShadow: "0 16px 40px rgba(0,0,0,0.08)",
       overflow: "hidden",
     },
@@ -500,7 +530,7 @@ export default function PannelloAdmin() {
       justifyContent: "space-between",
       gap: 10,
       borderBottom: "1px solid rgba(15,23,42,0.08)",
-      background: `linear-gradient(90deg, rgba(15,23,42,0.03), ${rgba(accent, 0.05)})`,
+      background: `linear-gradient(90deg, rgba(15,23,42,0.03), ${rgba(accent, 0.12)})`,
       flexWrap: "wrap",
     },
     panelTitle: { fontWeight: 1000, letterSpacing: 0.2 },
@@ -541,27 +571,27 @@ export default function PannelloAdmin() {
       padding: "9px 10px",
       borderRadius: 999,
       border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.92)",
+      background: "rgba(255,255,255,0.96)",
       cursor: "pointer",
       fontWeight: 1000,
       fontSize: 12,
       userSelect: "none",
     },
     pillActive: {
-      background: `linear-gradient(90deg, ${rgba(accent, 0.14)}, ${rgba(accent, 0.07)})`,
-      border: `1px solid ${rgba(accent, 0.20)}`,
+      background: `linear-gradient(180deg, ${rgba(accent, 0.95)} 0%, ${rgba(accent, 0.72)} 100%)`,
+      border: `1px solid ${rgba(accent, 0.28)}`,
+      boxShadow: "0 10px 24px rgba(0,0,0,0.08)",
     },
 
     list: { display: "grid", gap: 14 },
 
-    // ✅ card più “staccate” + bordo netto
     card: {
       borderRadius: 16,
-      background: "rgba(255,255,255,0.98)",
+      background: "rgba(255,255,255,0.99)",
       padding: 12,
       position: "relative",
       overflow: "hidden",
-      border: "1px solid rgba(15,23,42,0.16)",
+      border: "1px solid rgba(15,23,42,0.14)",
       boxShadow: "0 12px 28px rgba(0,0,0,0.08)",
     },
 
@@ -611,7 +641,7 @@ export default function PannelloAdmin() {
       padding: "9px 10px",
       borderRadius: 12,
       border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.95)",
+      background: "rgba(255,255,255,0.96)",
       color: "rgba(15,23,42,0.92)",
       cursor: "pointer",
       fontWeight: 1000,
@@ -621,10 +651,11 @@ export default function PannelloAdmin() {
       gap: 8,
       textDecoration: "none",
     },
+
+    miniGold: { border: `1px solid ${rgba(accent, 0.30)}`, background: `${rgba(accent, 0.14)}` },
     miniGreen: { border: "1px solid rgba(34,197,94,0.26)", background: "rgba(34,197,94,0.10)" },
     miniRed: { border: "1px solid rgba(239,68,68,0.26)", background: "rgba(239,68,68,0.10)" },
     miniYellow: { border: "1px solid rgba(245,158,11,0.26)", background: "rgba(245,158,11,0.10)" },
-    miniBlue: { border: `1px solid ${rgba(accent, 0.22)}`, background: `${rgba(accent, 0.08)}` },
 
     footer: { marginTop: 14, opacity: 0.7, fontSize: 12, textAlign: "center" },
 
@@ -657,7 +688,7 @@ export default function PannelloAdmin() {
                 <div style={styles.badge}>{badgeTop}</div>
                 <h1 style={styles.h1}>{panelTitle}</h1>
                 <p style={styles.sub}>
-                  Pannello prenotazioni: vedi <b>Nome</b>, <b>Telefono</b>, <b>Data</b>, <b>Ora</b>, <b>Servizio</b> e aggiorni lo stato in un tap.
+                  Pannello prenotazioni: vedi <b>Proprietario</b>, <b>Cane</b>, <b>Telefono</b>, <b>Data</b>, <b>Ora</b>, <b>Servizio</b>.
                 </p>
 
                 {loggedIn && (
@@ -760,14 +791,17 @@ export default function PannelloAdmin() {
                   <div style={styles.list}>
                     {filtered.map((r, idx) => {
                       const st = normStatus(r.stato);
-                      const nome = (r.nome || "Cliente").toString();
+
+                      const owner = (r.nome || "").trim();
+                      const dog = (r.nomeCane || "").trim();
+
                       const tel = r.telefono || "";
                       const dateIT = toITDate(r.dataISO);
                       const ora = r.ora || "—";
                       const serv = (r.servizio || "—").toString();
 
                       const callHref = tel ? `tel:${safeTel(tel)}` : "#";
-                      const waGeneric = tel ? waLink(tel, `Ciao ${nome}!`) : "#";
+                      const waGeneric = tel ? waLink(tel, `Ciao${owner ? " " + owner : ""}!`) : "#";
 
                       const acc = accentForIndex(idx);
 
@@ -776,7 +810,21 @@ export default function PannelloAdmin() {
                           <div style={acc.bar} />
 
                           <div style={styles.cardTop}>
-                            <span style={nameBadgeStyle()}>{nome}</span>
+                            {/* ✅ niente più "Cliente" */}
+                            <span style={nameBadgeStyle()}>
+                              <span>
+                                <span style={{ opacity: 0.75, fontWeight: 900, fontSize: 12 }}>Proprietario</span>
+                                <div style={{ fontWeight: 1000 }}>{owner || "—"}</div>
+                              </span>
+
+                              <span style={{ width: 1, height: 28, background: "rgba(15,23,42,0.12)" }} />
+
+                              <span>
+                                <span style={{ opacity: 0.75, fontWeight: 900, fontSize: 12 }}>Cane</span>
+                                <div style={{ fontWeight: 1000 }}>{dog || "—"}</div>
+                              </span>
+                            </span>
+
                             <div style={{ ...styles.rightStatus, ...statusPillStyle(st) }}>{st}</div>
                           </div>
 
@@ -813,7 +861,7 @@ export default function PannelloAdmin() {
                             <a
                               style={{
                                 ...styles.miniBtn,
-                                ...styles.miniBlue,
+                                ...styles.miniGold,
                                 opacity: tel ? 1 : 0.5,
                                 pointerEvents: tel ? "auto" : "none",
                               }}
@@ -826,7 +874,7 @@ export default function PannelloAdmin() {
                             <a
                               style={{
                                 ...styles.miniBtn,
-                                ...styles.miniBlue,
+                                ...styles.miniGold,
                                 opacity: tel ? 1 : 0.5,
                                 pointerEvents: tel ? "auto" : "none",
                               }}
