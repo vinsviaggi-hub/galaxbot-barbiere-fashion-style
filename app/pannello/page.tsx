@@ -1,4 +1,3 @@
-// app/pannello/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -12,13 +11,12 @@ type AdminRow = {
   rowNumber?: number;
   timestamp?: string;
 
-  // ✅ dati
-  nome?: string;       // nome proprietario
-  nomeCane?: string;   // nome cane
+  nome?: string; // proprietario
+  cane?: string; // nome cane
   telefono?: string;
 
   servizio?: string;
-  dataISO?: string; // yyyy-mm-dd
+  dataISO?: string; // yyyy-mm-dd oppure dd/mm/yyyy
   ora?: string; // HH:mm
 
   note?: string;
@@ -38,10 +36,21 @@ type UpdateResponse =
   | { ok: true; status?: string; message?: string }
   | { ok: false; error?: string; conflict?: boolean; details?: any };
 
+type RescheduleResponse =
+  | { ok: true; message?: string; id?: string; oldId?: string; dateISO?: string; time?: string }
+  | { ok: false; error?: string; details?: any; conflict?: boolean };
+
 function normStatus(s?: string): BookingStatus {
   const up = (s || "").toUpperCase().trim();
   if (up === "CONFERMATA" || up === "ANNULLATA" || up === "NUOVA") return up;
   return up || "NUOVA";
+}
+
+function labelStatusForUI(st?: BookingStatus) {
+  const s = normStatus(st);
+  // ✅ richiesta = nuovA (non cambiamo i dati su sheets, solo l’etichetta UI)
+  if (s === "NUOVA") return "RICHIESTA";
+  return s;
 }
 
 function safeTel(t?: string) {
@@ -73,6 +82,27 @@ function addDaysISO(iso: string, days: number) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function isIsoDate(s?: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+
+function normalizeTimeInput(v?: string) {
+  const s = String(v || "")
+    .trim()
+    .replace(".", ":")
+    .replace(",", ":")
+    .replace(/\s+/g, "");
+  if (!s) return "";
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return "";
+  const hh = String(parseInt(m[1], 10)).padStart(2, "0");
+  const mm = String(parseInt(m[2], 10)).padStart(2, "0");
+  const h = parseInt(hh, 10);
+  const mi = parseInt(mm, 10);
+  if (h < 0 || h > 23 || mi < 0 || mi > 59) return "";
+  return `${hh}:${mm}`;
+}
+
 async function safeJson(res: Response) {
   const text = await res.text().catch(() => "");
   try {
@@ -90,33 +120,46 @@ function hexToRgb(hex?: string) {
   const b = parseInt(h.slice(4, 6), 16);
   return { r, g, b };
 }
+
 function rgba(hex: string, a: number) {
   const c = hexToRgb(hex);
-  if (!c) return `rgba(245,179,1,${a})`;
+  if (!c) return `rgba(15,23,42,${a})`;
   return `rgba(${c.r},${c.g},${c.b},${a})`;
 }
 
+// ✅ palette chiara (pannello) — NON è quella dell’app
 function statusPillStyle(st: BookingStatus): CSSProperties {
   const s = normStatus(st);
   if (s === "CONFERMATA") {
     return {
-      background: "rgba(34,197,94,0.14)",
-      border: "1px solid rgba(34,197,94,0.35)",
-      color: "rgba(15,23,42,0.92)",
+      background: "rgba(16,185,129,0.14)",
+      border: "1px solid rgba(16,185,129,0.40)",
+      color: "rgba(6,95,70,0.98)",
     };
   }
   if (s === "ANNULLATA") {
     return {
       background: "rgba(239,68,68,0.12)",
-      border: "1px solid rgba(239,68,68,0.30)",
-      color: "rgba(15,23,42,0.92)",
+      border: "1px solid rgba(239,68,68,0.38)",
+      color: "rgba(153,27,27,0.98)",
     };
   }
+  // NUOVA -> RICHIESTA
   return {
-    background: "rgba(245,158,11,0.14)",
-    border: "1px solid rgba(245,158,11,0.30)",
-    color: "rgba(15,23,42,0.92)",
+    background: "rgba(245,158,11,0.16)",
+    border: "1px solid rgba(245,158,11,0.45)",
+    color: "rgba(146,64,14,0.98)",
   };
+}
+
+// remap chiavi (quando l'id cambia dopo lo spostamento)
+function remapKey<T extends Record<string, any>>(obj: T, fromKey: string, toKey: string): T {
+  if (!fromKey || !toKey || fromKey === toKey) return obj;
+  if (!(fromKey in obj)) return obj;
+  const next: any = { ...obj };
+  next[toKey] = next[fromKey];
+  delete next[fromKey];
+  return next as T;
 }
 
 export default function PannelloAdmin() {
@@ -131,82 +174,68 @@ export default function PannelloAdmin() {
   }, []);
 
   const badgeTop = biz?.badgeTop ?? biz?.labelTop ?? "GALAXBOT AI • ADMIN";
-  const head = biz?.headline ?? biz?.title ?? "";
-  const panelTitle = head ? `Prenotazioni • ${head}` : "Prenotazioni";
+  const head = biz?.headline ?? biz?.title ?? "4 Zampe";
+  const panelTitle = `Prenotazioni • ${head}`;
 
-  // ✅ colori richiesti
-  const GOLD = "#F5B301";
-  const RED = "#EF4444";
-  const accent = GOLD;
-
-  function nameBadgeStyle(): CSSProperties {
-    return {
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "8px 12px",
-      borderRadius: 999,
-      border: "1px solid rgba(15,23,42,0.12)",
-      background: "linear-gradient(135deg, rgba(15,23,42,0.05), rgba(15,23,42,0.02))",
-      color: "rgba(15,23,42,0.92)",
-      fontWeight: 1000,
-      letterSpacing: 0.2,
-      textTransform: "none",
-      gap: 10,
-    };
-  }
-
-  function accentForIndex(i: number) {
-    const isGold = i % 2 === 0;
-    const bar: CSSProperties = {
-      position: "absolute",
-      inset: "0 auto 0 0",
-      width: 8,
-      background: isGold
-        ? `linear-gradient(180deg, ${rgba(GOLD, 0.85)}, ${rgba(GOLD, 0.18)})`
-        : `linear-gradient(180deg, ${rgba(RED, 0.75)}, ${rgba(RED, 0.14)})`,
-    };
-    return { bar };
-  }
+  // ✅ accent diverso dall’app (se vuoi fisso, metti un colore qui)
+  const accent = biz?.panelTheme?.accent || "#0f172a";
 
   function toastStyle(type: "ok" | "err"): CSSProperties {
     return {
       pointerEvents: "none",
       padding: "10px 12px",
       borderRadius: 14,
-      border: type === "ok" ? "1px solid rgba(34,197,94,0.32)" : "1px solid rgba(239,68,68,0.30)",
-      background: type === "ok" ? "rgba(34,197,94,0.14)" : "rgba(239,68,68,0.14)",
-      color: "rgba(15,23,42,0.92)",
+      border: type === "ok" ? "1px solid rgba(16,185,129,0.45)" : "1px solid rgba(239,68,68,0.40)",
+      background: type === "ok" ? "rgba(16,185,129,0.14)" : "rgba(239,68,68,0.14)",
+      color: "rgba(15,23,42,0.95)",
       fontWeight: 950,
-      boxShadow: "0 16px 40px rgba(0,0,0,0.14)",
-      maxWidth: 860,
+      boxShadow: "0 18px 50px rgba(0,0,0,0.18)",
+      maxWidth: 920,
       width: "100%",
       textAlign: "center",
+      backdropFilter: "blur(6px)",
     };
   }
 
   function waLink(phone: string, text: string) {
     const p = safeTel(phone);
     const msg = encodeURIComponent(text);
-    const t = Date.now();
-    return `https://api.whatsapp.com/send?phone=${p}&text=${msg}&t=${t}`;
+    return `https://api.whatsapp.com/send?phone=${p}&text=${msg}`;
   }
 
   function buildConfirmMsg(r: AdminRow) {
     const nome = (r.nome || "").trim();
-    const cane = (r.nomeCane || "").trim();
+    const cane = (r.cane || "").trim();
     const data = toITDate(r.dataISO);
     const ora = r.ora || "—";
     const serv = (r.servizio || "appuntamento").toString();
-    return `Ciao${nome ? " " + nome : ""}! ✅ Confermato per ${data} alle ${ora} (${serv})${cane ? `. Per ${cane}` : ""}. A presto!`;
+    return `Ciao${nome ? " " + nome : ""}! ✅ Confermato: ${serv} per ${cane ? cane + " — " : ""}${data} alle ${ora}. A presto!`;
   }
 
   function buildCancelMsg(r: AdminRow) {
     const nome = (r.nome || "").trim();
-    const cane = (r.nomeCane || "").trim();
+    const cane = (r.cane || "").trim();
     const data = toITDate(r.dataISO);
     const ora = r.ora || "—";
     const serv = (r.servizio || "appuntamento").toString();
-    return `Ciao${nome ? " " + nome : ""}. ❌ Annullato (${serv}) del ${data} alle ${ora}${cane ? ` (per ${cane})` : ""}. Se vuoi riprenotare, scrivimi qui.`;
+    return `Ciao${nome ? " " + nome : ""}. ❌ Annullato: ${serv} ${cane ? "(" + cane + ") " : ""}del ${data} alle ${ora}. Se vuoi riprenotare, scrivimi qui.`;
+  }
+
+  function buildRescheduleMsg(r: AdminRow, newDateISO: string, newTime: string) {
+    const nome = (r.nome || "").trim();
+    const cane = (r.cane || "").trim();
+    const serv = (r.servizio || "appuntamento").toString();
+
+    const oldDate = toITDate(r.dataISO);
+    const oldTime = r.ora || "—";
+    const newDateIT = toITDate(newDateISO);
+
+    return (
+      `Ciao${nome ? " " + nome : ""}! 🔁 Per ${serv}${cane ? " (" + cane + ")" : ""} ti propongo questo spostamento:\n` +
+      `• Prima: ${oldDate} alle ${oldTime}\n` +
+      `• Nuovo: ${newDateIT} alle ${newTime}\n\n` +
+      `Va bene? Rispondimi qui così confermo.`
+    );
   }
 
   const [checking, setChecking] = useState(true);
@@ -216,15 +245,26 @@ export default function PannelloAdmin() {
   const [loadingRows, setLoadingRows] = useState(false);
   const [rowsError, setRowsError] = useState<string | null>(null);
 
-  const [dayMode, setDayMode] = useState<"TUTTO" | "OGGI" | "DOMANI" | "7" | "DATA">("TUTTO");
+  const [dayMode, setDayMode] = useState<"TUTTO" | "OGGI" | "DOMANI" | "7" | "DATA">("OGGI");
   const [pickDate, setPickDate] = useState<string>(todayISO());
-
   const [statusFilter, setStatusFilter] = useState<"TUTTE" | "NUOVA" | "CONFERMATA" | "ANNULLATA">("TUTTE");
 
   const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
   const showToast = (type: "ok" | "err", msg: string) => {
     setToast({ type, msg });
     window.setTimeout(() => setToast(null), 2400);
+  };
+
+  // --- SPOSITAMENTO ---
+  const [moveOpen, setMoveOpen] = useState<Record<string, boolean>>({});
+  const [moveDate, setMoveDate] = useState<Record<string, string>>({});
+  const [moveTime, setMoveTime] = useState<Record<string, string>>({});
+  const [moveLoading, setMoveLoading] = useState<Record<string, boolean>>({});
+
+  const toggleMove = (r: AdminRow) => {
+    setMoveOpen((p) => ({ ...p, [r.id]: !p[r.id] }));
+    setMoveDate((p) => ({ ...p, [r.id]: p[r.id] ?? (r.dataISO || todayISO()) }));
+    setMoveTime((p) => ({ ...p, [r.id]: p[r.id] ?? (r.ora || "") }));
   };
 
   const counts = useMemo(() => {
@@ -261,6 +301,7 @@ export default function PannelloAdmin() {
       .filter((r) => {
         if (!fromISO || !toISO) return true;
         const d = String(r.dataISO || "").trim();
+        // se arriva DD/MM/YYYY non filtro (così non sparisce)
         if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return true;
         return d >= fromISO && d <= toISO;
       })
@@ -293,13 +334,25 @@ export default function PannelloAdmin() {
     }
   };
 
-  // ✅ helper: prende valore anche da chiavi strane (tipo "nome cane")
-  function pickAny(obj: any, keys: string[]) {
-    for (const k of keys) {
-      if (obj && obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== "") return obj[k];
-    }
-    return "";
-  }
+  const normalizeList = (data: any): AdminRow[] => {
+    const list = Array.isArray(data?.rows) ? data.rows : [];
+    return list
+      .map((r: any) => ({
+        id: String(r?.id ?? ""),
+        rowNumber: r?.rowNumber,
+        timestamp: r?.timestamp,
+        nome: (r?.nome ?? r?.ownerName ?? r?.name ?? "").toString(),
+        cane: (r?.cane ?? r?.dogName ?? r?.nomeCane ?? r?.nome_cane ?? "").toString(),
+        telefono: r?.telefono ?? r?.phone,
+        servizio: r?.servizio ?? r?.service,
+        dataISO: r?.dataISO ?? r?.dateISO ?? r?.date,
+        ora: r?.ora ?? r?.time,
+        note: r?.note ?? r?.notes,
+        stato: normStatus(r?.stato ?? r?.status),
+        canale: r?.canale ?? r?.channel,
+      }))
+      .filter((x: AdminRow) => x.id);
+  };
 
   const loadRows = async () => {
     setLoadingRows(true);
@@ -314,38 +367,7 @@ export default function PannelloAdmin() {
         return;
       }
 
-      const list = Array.isArray((data as any).rows) ? (data as any).rows : [];
-
-      const normalized: AdminRow[] = list
-        .map((r: any) => {
-          const nome = pickAny(r, ["nome", "ownerName", "name", "nome proprietario"]);
-          const nomeCane = pickAny(r, ["nomeCane", "dogName", "nome cane", "cane", "petName"]);
-          const telefono = pickAny(r, ["telefono", "phone"]);
-          const servizio = pickAny(r, ["servizio", "service"]);
-          const dataISO = pickAny(r, ["dataISO", "dateISO", "date"]);
-          const ora = pickAny(r, ["ora", "time"]);
-          const note = pickAny(r, ["note", "notes"]);
-          const canale = pickAny(r, ["canale", "channel"]);
-          const stato = normStatus(pickAny(r, ["stato", "status"]));
-
-          return {
-            id: String(r?.id ?? ""),
-            rowNumber: r?.rowNumber,
-            timestamp: r?.timestamp,
-            nome: String(nome || "").trim(),
-            nomeCane: String(nomeCane || "").trim(),
-            telefono: String(telefono || "").trim(),
-            servizio: String(servizio || "").trim(),
-            dataISO: String(dataISO || "").trim(),
-            ora: String(ora || "").trim(),
-            note: String(note || "").trim(),
-            stato,
-            canale: String(canale || "").trim(),
-          };
-        })
-        .filter((x: AdminRow) => x.id);
-
-      setRows(normalized);
+      setRows(normalizeList(data));
     } catch {
       setRowsError("Errore rete nel caricamento prenotazioni.");
       setRows([]);
@@ -354,11 +376,47 @@ export default function PannelloAdmin() {
     }
   };
 
+  // ✅ refresh “silenzioso” (non ti cambia UI)
+  const loadRowsSilent = async () => {
+    try {
+      const res = await fetch("/api/admin/bookings?limit=800", { credentials: "include" });
+      const data: any = await safeJson(res);
+      if (data?.ok) setRows(normalizeList(data));
+    } catch {
+      // silenzioso apposta
+    }
+  };
+
+  // ✅ ogni 1 minuto (come vuoi tu)
+  useEffect(() => {
+    if (!loggedIn) return;
+    const t = window.setInterval(() => {
+      void loadRowsSilent();
+    }, 60000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedIn]);
+
   const logout = async () => {
     try {
       await fetch("/api/admin/logout", { method: "POST", credentials: "include" });
     } catch {}
     window.location.href = "/pannello/login";
+  };
+
+  function openWhatsApp(phone: string, message: string) {
+    const p = safeTel(phone);
+    if (!p) {
+      showToast("err", "Telefono mancante: non posso aprire WhatsApp.");
+      return;
+    }
+    const url = waLink(p, message);
+    window.open(url, `wa_${Date.now()}`, "noopener,noreferrer");
+  }
+
+  // prende SEMPRE la riga aggiornata (se esiste)
+  const getFreshRow = (id: string, fallback?: AdminRow) => {
+    return rows.find((x) => x.id === id) ?? fallback ?? null;
   };
 
   const setStatus = async (id: string, status: BookingStatus) => {
@@ -380,7 +438,7 @@ export default function PannelloAdmin() {
         return;
       }
 
-      showToast("ok", `Stato aggiornato: ${next}`);
+      showToast("ok", `Stato aggiornato: ${labelStatusForUI(next)}`);
       await loadRows();
     } catch {
       showToast("err", "Errore rete: stato non aggiornato.");
@@ -388,33 +446,110 @@ export default function PannelloAdmin() {
     }
   };
 
-  function openWhatsApp(phone: string, message: string) {
-    const p = safeTel(phone);
-    if (!p) {
-      showToast("err", "Telefono mancante: non posso aprire WhatsApp.");
+  const confirmRequest = async (r: AdminRow) => {
+    const fr = getFreshRow(r.id, r);
+    if (!fr) {
+      showToast("err", "Riga non trovata (ricarica il pannello).");
       return;
     }
-    const url = waLink(p, message);
-    window.open(url, `wa_${Date.now()}`, "noopener,noreferrer");
-  }
-
-  const confirmWhatsApp = (r: AdminRow) => {
-    openWhatsApp(r.telefono || "", buildConfirmMsg(r));
-    void setStatus(r.id, "CONFERMATA");
+    openWhatsApp(fr.telefono || "", buildConfirmMsg(fr));
+    await setStatus(fr.id, "CONFERMATA");
   };
 
-  const cancelWhatsApp = (r: AdminRow) => {
-    openWhatsApp(r.telefono || "", buildCancelMsg(r));
-    void setStatus(r.id, "ANNULLATA");
+  const cancelRequest = async (r: AdminRow) => {
+    const fr = getFreshRow(r.id, r);
+    if (!fr) {
+      showToast("err", "Riga non trovata (ricarica il pannello).");
+      return;
+    }
+    openWhatsApp(fr.telefono || "", buildCancelMsg(fr));
+    await setStatus(fr.id, "ANNULLATA");
+  };
+
+  // --- SPOSITAMENTO: salva su Sheets + apre WhatsApp con proposta ---
+  const rescheduleRequest = async (r: AdminRow) => {
+    const d = String(moveDate[r.id] ?? "").trim();
+    const tRaw = String(moveTime[r.id] ?? "").trim();
+    const t = normalizeTimeInput(tRaw);
+
+    if (!isIsoDate(d)) {
+      showToast("err", "Data nuova non valida (usa il selettore).");
+      return;
+    }
+    if (!t) {
+      showToast("err", "Ora nuova non valida. Scrivi HH:mm (es. 15:30).");
+      return;
+    }
+    if (!r.telefono) {
+      showToast("err", "Telefono mancante: non posso inviare WhatsApp.");
+      return;
+    }
+
+    setMoveLoading((p) => ({ ...p, [r.id]: true }));
+
+    try {
+      const res = await fetch("/api/admin/bookings", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "admin_reschedule", id: r.id, dateISO: d, time: t }),
+      });
+
+      const data: RescheduleResponse = await safeJson(res);
+
+      if (!(data as any)?.ok) {
+        const conflict = Boolean((data as any)?.conflict);
+        showToast(
+          "err",
+          conflict ? "Orario già occupato: scegli un altro slot." : ((data as any)?.error || "Spostamento non riuscito.")
+        );
+        return;
+      }
+
+      const oldId = r.id;
+      const newId = String((data as any)?.id || oldId);
+      const newDateISO = String((data as any)?.dateISO || d);
+      const newTime = String((data as any)?.time || t);
+
+      setRows((prev) =>
+        prev.map((x) =>
+          x.id === oldId
+            ? {
+                ...x,
+                id: newId,
+                dataISO: newDateISO,
+                ora: newTime,
+              }
+            : x
+        )
+      );
+
+      if (newId !== oldId) {
+        setMoveOpen((p) => remapKey(p, oldId, newId));
+        setMoveDate((p) => remapKey(p, oldId, newId));
+        setMoveTime((p) => remapKey(p, oldId, newId));
+        setMoveLoading((p) => remapKey(p, oldId, newId));
+      }
+
+      showToast("ok", "Spostamento salvato. Ora preparo WhatsApp…");
+      openWhatsApp(r.telefono || "", buildRescheduleMsg(r, newDateISO, newTime));
+      setMoveOpen((p) => ({ ...p, [newId]: false }));
+
+      await loadRows();
+    } catch (e: any) {
+      showToast("err", `Errore rete: ${String(e?.message || e)}`);
+    } finally {
+      setMoveLoading((p) => ({ ...p, [r.id]: false }));
+    }
   };
 
   useEffect(() => {
-    checkMe();
+    void checkMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (loggedIn) loadRows();
+    if (loggedIn) void loadRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedIn]);
 
@@ -422,25 +557,26 @@ export default function PannelloAdmin() {
     if (!checking && !loggedIn) router.replace("/pannello/login");
   }, [checking, loggedIn, router]);
 
+  // ✅ SOLO colori richiesti: header meno bianco + bordi card neri
   const styles: Record<string, CSSProperties> = {
     page: {
       minHeight: "100vh",
-      padding: "18px 12px 34px",
+      padding: "16px 12px 30px",
       background:
-        "radial-gradient(900px 520px at 12% 0%, rgba(245,179,1,0.10), transparent 62%)," +
-        "radial-gradient(900px 520px at 88% 10%, rgba(0,0,0,0.05), transparent 62%)," +
-        "radial-gradient(900px 520px at 50% 100%, rgba(148,163,184,0.10), transparent 60%)," +
-        "linear-gradient(180deg, #fafbfc 0%, #ffffff 55%, #f5f7fb 100%)",
+        "radial-gradient(1100px 640px at 18% 0%, rgba(15,23,42,0.08), transparent 60%)," +
+        "radial-gradient(1000px 620px at 90% 10%, rgba(2,132,199,0.08), transparent 55%)," +
+        "linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%)",
       color: "rgba(15,23,42,0.92)",
       fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
     },
     container: { maxWidth: 1120, margin: "0 auto" },
 
+    // ✅ HEADER: meno bianco, più scuro/elegante
     header: {
       borderRadius: 18,
-      border: "1px solid rgba(15,23,42,0.10)",
-      background: "rgba(255,255,255,0.96)",
-      boxShadow: "0 16px 40px rgba(0,0,0,0.08)",
+      border: "1px solid rgba(0,0,0,0.30)",
+      background: "linear-gradient(180deg, rgba(226,232,240,0.95), rgba(241,245,249,0.88))",
+      boxShadow: "0 18px 50px rgba(0,0,0,0.10)",
       overflow: "hidden",
     },
     headerInner: { padding: "14px 14px 12px" },
@@ -452,21 +588,25 @@ export default function PannelloAdmin() {
       justifyContent: "space-between",
       flexWrap: "wrap",
     },
+
+    // ✅ Badge più contrastato
     badge: {
       display: "inline-flex",
       alignItems: "center",
       gap: 8,
       padding: "7px 10px",
       borderRadius: 999,
-      border: `1px solid ${rgba(accent, 0.26)}`,
-      background: `${rgba(accent, 0.10)}`,
+      border: "1px solid rgba(0,0,0,0.35)",
+      background: "rgba(15,23,42,0.08)",
       fontSize: 12,
       letterSpacing: 0.6,
       textTransform: "uppercase",
       fontWeight: 900,
+      color: "rgba(15,23,42,0.92)",
     },
+
     h1: { margin: "6px 0 2px", fontSize: 28, fontWeight: 1000, letterSpacing: -0.4 },
-    sub: { margin: 0, opacity: 0.85, fontSize: 14, lineHeight: 1.35 },
+    sub: { margin: 0, opacity: 0.75, fontSize: 14, lineHeight: 1.35 },
 
     chipsRow: { marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
     chip: {
@@ -476,51 +616,50 @@ export default function PannelloAdmin() {
       padding: "8px 10px",
       borderRadius: 999,
       border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.96)",
+      background: "rgba(255,255,255,0.72)",
       fontWeight: 950,
       fontSize: 13,
+      color: "rgba(15,23,42,0.90)",
     },
 
     btnRow: { display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" },
 
-    btnPrimary: {
-      border: `1px solid ${rgba(accent, 0.30)}`,
-      background: `linear-gradient(180deg, ${rgba(accent, 0.95)} 0%, ${rgba(accent, 0.78)} 100%)`,
-      color: "rgba(15,23,42,0.92)",
-      padding: "10px 12px",
-      borderRadius: 12,
-      cursor: "pointer",
-      fontWeight: 1000,
-      boxShadow: "0 10px 26px rgba(0,0,0,0.10)",
-    },
-
-    btnDanger: {
-      border: `1px solid ${rgba(RED, 0.30)}`,
-      background: `linear-gradient(180deg, ${rgba(RED, 0.85)} 0%, ${rgba(RED, 0.70)} 100%)`,
-      color: "white",
-      padding: "10px 12px",
-      borderRadius: 12,
-      cursor: "pointer",
-      fontWeight: 1000,
-      boxShadow: "0 10px 26px rgba(0,0,0,0.10)",
-    },
-
     btn: {
       border: "1px solid rgba(15,23,42,0.14)",
-      background: "rgba(255,255,255,0.96)",
+      background: "rgba(255,255,255,0.80)",
       color: "rgba(15,23,42,0.92)",
       padding: "10px 12px",
-      borderRadius: 12,
+      borderRadius: 14,
       cursor: "pointer",
       fontWeight: 950,
+    },
+    btnGold: {
+      border: "1px solid rgba(245,158,11,0.45)",
+      background: "linear-gradient(180deg, rgba(245,158,11,0.95), rgba(245,158,11,0.75))",
+      color: "rgba(15,23,42,0.95)",
+      padding: "10px 12px",
+      borderRadius: 14,
+      cursor: "pointer",
+      fontWeight: 1000,
+      boxShadow: "0 10px 26px rgba(245,158,11,0.18)",
+    },
+    btnRed: {
+      border: "1px solid rgba(239,68,68,0.45)",
+      background: "linear-gradient(180deg, rgba(239,68,68,0.92), rgba(239,68,68,0.72))",
+      color: "rgba(255,255,255,0.98)",
+      padding: "10px 12px",
+      borderRadius: 14,
+      cursor: "pointer",
+      fontWeight: 1000,
+      boxShadow: "0 10px 26px rgba(239,68,68,0.12)",
     },
 
     panel: {
       marginTop: 12,
       borderRadius: 18,
-      border: "1px solid rgba(15,23,42,0.10)",
-      background: "rgba(255,255,255,0.96)",
-      boxShadow: "0 16px 40px rgba(0,0,0,0.08)",
+      border: "1px solid rgba(15,23,42,0.12)",
+      background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.86))",
+      boxShadow: "0 18px 50px rgba(15,23,42,0.08)",
       overflow: "hidden",
     },
     panelHeader: {
@@ -529,9 +668,10 @@ export default function PannelloAdmin() {
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
-      borderBottom: "1px solid rgba(15,23,42,0.08)",
-      background: `linear-gradient(90deg, rgba(15,23,42,0.03), ${rgba(accent, 0.12)})`,
+      borderBottom: "1px solid rgba(15,23,42,0.10)",
+      background: `linear-gradient(90deg, rgba(255,255,255,0.60), ${rgba(accent, 0.06)})`,
       flexWrap: "wrap",
+      color: "rgba(15,23,42,0.90)",
     },
     panelTitle: { fontWeight: 1000, letterSpacing: 0.2 },
     body: { padding: 14 },
@@ -539,22 +679,22 @@ export default function PannelloAdmin() {
     error: {
       marginTop: 10,
       padding: "10px 12px",
-      borderRadius: 12,
-      border: "1px solid rgba(239,68,68,0.26)",
-      background: "rgba(239,68,68,0.10)",
-      color: "rgba(15,23,42,0.92)",
+      borderRadius: 14,
+      border: "1px solid rgba(239,68,68,0.40)",
+      background: "rgba(239,68,68,0.12)",
       fontWeight: 950,
       fontSize: 13,
+      color: "rgba(153,27,27,0.95)",
     },
     ok: {
       marginTop: 10,
       padding: "10px 12px",
-      borderRadius: 12,
-      border: "1px solid rgba(34,197,94,0.24)",
-      background: "rgba(34,197,94,0.10)",
-      color: "rgba(15,23,42,0.92)",
+      borderRadius: 14,
+      border: "1px solid rgba(16,185,129,0.38)",
+      background: "rgba(16,185,129,0.12)",
       fontWeight: 950,
       fontSize: 13,
+      color: "rgba(6,95,70,0.95)",
     },
 
     tools: {
@@ -570,29 +710,31 @@ export default function PannelloAdmin() {
     pill: {
       padding: "9px 10px",
       borderRadius: 999,
-      border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.96)",
+      border: "1px solid rgba(15,23,42,0.14)",
+      background: "rgba(255,255,255,0.72)",
       cursor: "pointer",
       fontWeight: 1000,
       fontSize: 12,
       userSelect: "none",
+      color: "rgba(15,23,42,0.88)",
     },
     pillActive: {
-      background: `linear-gradient(180deg, ${rgba(accent, 0.95)} 0%, ${rgba(accent, 0.72)} 100%)`,
-      border: `1px solid ${rgba(accent, 0.28)}`,
-      boxShadow: "0 10px 24px rgba(0,0,0,0.08)",
+      background: `linear-gradient(180deg, rgba(245,158,11,0.95), rgba(245,158,11,0.75))`,
+      border: `1px solid rgba(245,158,11,0.50)`,
+      color: "rgba(15,23,42,0.95)",
     },
 
     list: { display: "grid", gap: 14 },
 
+    // ✅ CARD PRENOTAZIONI: bordo nero per dividerle
     card: {
       borderRadius: 16,
-      background: "rgba(255,255,255,0.99)",
+      background: "linear-gradient(180deg, rgba(255,255,255,0.90), rgba(255,255,255,0.82))",
       padding: 12,
       position: "relative",
       overflow: "hidden",
-      border: "1px solid rgba(15,23,42,0.14)",
-      boxShadow: "0 12px 28px rgba(0,0,0,0.08)",
+      border: "2px solid rgba(0,0,0,0.55)",
+      boxShadow: "0 14px 34px rgba(15,23,42,0.08)",
     },
 
     cardTop: {
@@ -602,7 +744,18 @@ export default function PannelloAdmin() {
       gap: 10,
       flexWrap: "wrap",
       marginBottom: 10,
-      paddingLeft: 10,
+    },
+    nameBadge: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "8px 12px",
+      borderRadius: 999,
+      border: "1px solid rgba(15,23,42,0.12)",
+      background: "rgba(255,255,255,0.70)",
+      fontWeight: 1000,
+      letterSpacing: 0.2,
+      color: "rgba(15,23,42,0.92)",
     },
     rightStatus: {
       display: "inline-flex",
@@ -614,50 +767,70 @@ export default function PannelloAdmin() {
       fontSize: 12,
     },
 
-    grid: {
-      display: "grid",
-      gap: 10,
-      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-      paddingLeft: 10,
-    },
+    grid: { display: "grid", gap: 10, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" },
     box: {
       borderRadius: 14,
-      border: "1px solid rgba(15,23,42,0.10)",
-      background: "rgba(15,23,42,0.02)",
+      border: "1px solid rgba(15,23,42,0.12)",
+      background: "rgba(255,255,255,0.70)",
       padding: "10px 10px",
     },
-    boxLabel: { fontSize: 11, fontWeight: 1000, opacity: 0.7, letterSpacing: 0.6 },
-    boxValue: { marginTop: 4, fontSize: 15, fontWeight: 1000 },
+    boxLabel: { fontSize: 11, fontWeight: 1000, opacity: 0.70, letterSpacing: 0.6, color: "rgba(15,23,42,0.85)" },
+    boxValue: { marginTop: 4, fontSize: 15, fontWeight: 1000, color: "rgba(15,23,42,0.95)" },
 
-    actions: {
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap",
-      marginTop: 10,
-      paddingLeft: 10,
-      alignItems: "center",
-    },
+    actions: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center" },
     miniBtn: {
-      padding: "9px 10px",
-      borderRadius: 12,
-      border: "1px solid rgba(15,23,42,0.12)",
-      background: "rgba(255,255,255,0.96)",
+      padding: "10px 12px",
+      borderRadius: 14,
+      border: "1px solid rgba(15,23,42,0.14)",
+      background: "rgba(255,255,255,0.75)",
       color: "rgba(15,23,42,0.92)",
       cursor: "pointer",
       fontWeight: 1000,
-      fontSize: 12,
+      fontSize: 13,
       display: "inline-flex",
       alignItems: "center",
       gap: 8,
       textDecoration: "none",
     },
+    miniGold: {
+      border: "1px solid rgba(245,158,11,0.45)",
+      background: "linear-gradient(180deg, rgba(245,158,11,0.95), rgba(245,158,11,0.75))",
+      color: "rgba(15,23,42,0.95)",
+    },
+    miniRed: {
+      border: "1px solid rgba(239,68,68,0.45)",
+      background: "linear-gradient(180deg, rgba(239,68,68,0.92), rgba(239,68,68,0.72))",
+      color: "rgba(255,255,255,0.98)",
+    },
 
-    miniGold: { border: `1px solid ${rgba(accent, 0.30)}`, background: `${rgba(accent, 0.14)}` },
-    miniGreen: { border: "1px solid rgba(34,197,94,0.26)", background: "rgba(34,197,94,0.10)" },
-    miniRed: { border: "1px solid rgba(239,68,68,0.26)", background: "rgba(239,68,68,0.10)" },
-    miniYellow: { border: "1px solid rgba(245,158,11,0.26)", background: "rgba(245,158,11,0.10)" },
+    moveWrap: {
+      marginTop: 10,
+      borderRadius: 14,
+      border: "1px solid rgba(15,23,42,0.12)",
+      background: "rgba(255,255,255,0.72)",
+      padding: 10,
+    },
+    moveTitle: { fontWeight: 1000, marginBottom: 8, opacity: 0.9, color: "rgba(15,23,42,0.92)" },
+    moveGrid: { display: "grid", gap: 10, gridTemplateColumns: "repeat(2, minmax(0, 1fr))" },
+    input: {
+      width: "100%",
+      padding: "12px 12px",
+      borderRadius: 14,
+      border: "1px solid rgba(15,23,42,0.14)",
+      background: "rgba(255,255,255,0.86)",
+      color: "rgba(15,23,42,0.92)",
+      fontWeight: 900,
+      outline: "none",
+    },
 
-    footer: { marginTop: 14, opacity: 0.7, fontSize: 12, textAlign: "center" },
+    footer: {
+      marginTop: 14,
+      opacity: 0.65,
+      fontSize: 12,
+      textAlign: "center",
+      fontWeight: 900,
+      color: "rgba(15,23,42,0.72)",
+    },
 
     toastWrap: {
       position: "fixed",
@@ -688,12 +861,13 @@ export default function PannelloAdmin() {
                 <div style={styles.badge}>{badgeTop}</div>
                 <h1 style={styles.h1}>{panelTitle}</h1>
                 <p style={styles.sub}>
-                  Pannello prenotazioni: vedi <b>Proprietario</b>, <b>Cane</b>, <b>Telefono</b>, <b>Data</b>, <b>Ora</b>, <b>Servizio</b>.
+                  Qui vedi <b>Nome proprietario</b>, <b>Nome cane</b>, <b>Telefono</b>, <b>Data</b>, <b>Ora</b>, <b>Servizio</b>.
+                  Premi <b>Conferma richiesta</b>, <b>Annulla richiesta</b> oppure <b>Sposta appuntamento</b> (nuova data/ora) e invia su WhatsApp.
                 </p>
 
                 {loggedIn && (
                   <div style={styles.chipsRow}>
-                    <div style={styles.chip}>🟡 Nuove: {counts.NUOVA}</div>
+                    <div style={styles.chip}>🟡 Richieste: {counts.NUOVA}</div>
                     <div style={styles.chip}>✅ Confermate: {counts.CONFERMATA}</div>
                     <div style={styles.chip}>❌ Annullate: {counts.ANNULLATA}</div>
                   </div>
@@ -703,10 +877,10 @@ export default function PannelloAdmin() {
               <div style={styles.btnRow}>
                 {loggedIn ? (
                   <>
-                    <button style={styles.btnPrimary} onClick={loadRows} disabled={loadingRows}>
+                    <button style={styles.btnGold} onClick={loadRows} disabled={loadingRows}>
                       {loadingRows ? "Aggiorno…" : "Aggiorna"}
                     </button>
-                    <button style={styles.btnDanger} onClick={logout}>
+                    <button style={styles.btnRed} onClick={logout}>
                       Esci
                     </button>
                   </>
@@ -721,7 +895,7 @@ export default function PannelloAdmin() {
         <div style={styles.panel}>
           <div style={styles.panelHeader}>
             <div style={styles.panelTitle}>{loggedIn ? "Prenotazioni" : "Accesso"}</div>
-            <div style={{ opacity: 0.85, fontSize: 12 }}>{loggedIn ? "Conferma/Annulla → apre WhatsApp con messaggio pronto" : ""}</div>
+            <div style={{ opacity: 0.8, fontSize: 12 }}>{loggedIn ? "Azioni → apre WhatsApp col testo pronto" : ""}</div>
           </div>
 
           <div style={styles.body}>
@@ -758,7 +932,7 @@ export default function PannelloAdmin() {
 
                       {dayMode === "DATA" && (
                         <input
-                          style={{ width: 170, padding: "12px 12px", borderRadius: 12, border: "1px solid rgba(15,23,42,0.14)" }}
+                          style={styles.input}
                           type="date"
                           value={pickDate}
                           onChange={(e) => setPickDate(e.target.value)}
@@ -775,7 +949,7 @@ export default function PannelloAdmin() {
                           onClick={() => setStatusFilter(s)}
                           role="button"
                         >
-                          {s === "TUTTE" ? "Tutte" : s}
+                          {s === "TUTTE" ? "Tutte" : s === "NUOVA" ? "RICHIESTA" : s}
                         </div>
                       ))}
                     </div>
@@ -789,43 +963,32 @@ export default function PannelloAdmin() {
                   <div style={styles.ok}>Nessuna prenotazione da mostrare.</div>
                 ) : (
                   <div style={styles.list}>
-                    {filtered.map((r, idx) => {
+                    {filtered.map((r) => {
                       const st = normStatus(r.stato);
+                      const stLabel = labelStatusForUI(st);
 
-                      const owner = (r.nome || "").trim();
-                      const dog = (r.nomeCane || "").trim();
-
+                      const nome = (r.nome || "").trim() || "Senza nome";
+                      const cane = (r.cane || "").trim() || "Senza nome cane";
                       const tel = r.telefono || "";
                       const dateIT = toITDate(r.dataISO);
                       const ora = r.ora || "—";
                       const serv = (r.servizio || "—").toString();
 
                       const callHref = tel ? `tel:${safeTel(tel)}` : "#";
-                      const waGeneric = tel ? waLink(tel, `Ciao${owner ? " " + owner : ""}!`) : "#";
+                      const waGeneric = tel ? waLink(tel, `Ciao ${nome}!`) : "#";
 
-                      const acc = accentForIndex(idx);
+                      const isOpen = Boolean(moveOpen[r.id]);
+                      const nd = moveDate[r.id] ?? (r.dataISO || todayISO());
+                      const nt = moveTime[r.id] ?? (r.ora || "");
+                      const busy = Boolean(moveLoading[r.id]);
 
                       return (
                         <div key={r.id} style={styles.card}>
-                          <div style={acc.bar} />
-
                           <div style={styles.cardTop}>
-                            {/* ✅ niente più "Cliente" */}
-                            <span style={nameBadgeStyle()}>
-                              <span>
-                                <span style={{ opacity: 0.75, fontWeight: 900, fontSize: 12 }}>Proprietario</span>
-                                <div style={{ fontWeight: 1000 }}>{owner || "—"}</div>
-                              </span>
-
-                              <span style={{ width: 1, height: 28, background: "rgba(15,23,42,0.12)" }} />
-
-                              <span>
-                                <span style={{ opacity: 0.75, fontWeight: 900, fontSize: 12 }}>Cane</span>
-                                <div style={{ fontWeight: 1000 }}>{dog || "—"}</div>
-                              </span>
+                            <span style={styles.nameBadge}>
+                              👤 {nome} <span style={{ opacity: 0.55 }}>•</span> 🐶 {cane}
                             </span>
-
-                            <div style={{ ...styles.rightStatus, ...statusPillStyle(st) }}>{st}</div>
+                            <div style={{ ...styles.rightStatus, ...statusPillStyle(st) }}>{stLabel}</div>
                           </div>
 
                           <div className="mm-grid" style={styles.grid}>
@@ -851,7 +1014,7 @@ export default function PannelloAdmin() {
                           </div>
 
                           {r.note ? (
-                            <div style={{ ...styles.box, marginTop: 10, marginLeft: 10 }}>
+                            <div style={{ ...styles.box, marginTop: 10 }}>
                               <div style={styles.boxLabel}>NOTE</div>
                               <div style={{ ...styles.boxValue, fontWeight: 900, whiteSpace: "pre-wrap" }}>{r.note}</div>
                             </div>
@@ -859,12 +1022,7 @@ export default function PannelloAdmin() {
 
                           <div style={styles.actions}>
                             <a
-                              style={{
-                                ...styles.miniBtn,
-                                ...styles.miniGold,
-                                opacity: tel ? 1 : 0.5,
-                                pointerEvents: tel ? "auto" : "none",
-                              }}
+                              style={{ ...styles.miniBtn, opacity: tel ? 1 : 0.5, pointerEvents: tel ? "auto" : "none" }}
                               href={callHref}
                               title="Chiama"
                             >
@@ -872,12 +1030,7 @@ export default function PannelloAdmin() {
                             </a>
 
                             <a
-                              style={{
-                                ...styles.miniBtn,
-                                ...styles.miniGold,
-                                opacity: tel ? 1 : 0.5,
-                                pointerEvents: tel ? "auto" : "none",
-                              }}
+                              style={{ ...styles.miniBtn, opacity: tel ? 1 : 0.5, pointerEvents: tel ? "auto" : "none" }}
                               href={waGeneric}
                               target="_blank"
                               rel="noreferrer"
@@ -886,18 +1039,62 @@ export default function PannelloAdmin() {
                               💬 WhatsApp
                             </a>
 
-                            <button style={{ ...styles.miniBtn, ...styles.miniYellow }} onClick={() => setStatus(r.id, "NUOVA")}>
-                              🟡 Nuova
+                            <button style={styles.miniBtn} onClick={() => toggleMove(r)}>
+                              🔁 Sposta appuntamento
                             </button>
 
-                            <button style={{ ...styles.miniBtn, ...styles.miniGreen }} onClick={() => confirmWhatsApp(r)}>
-                              ✅ Conferma (WhatsApp)
+                            <button style={{ ...styles.miniBtn, ...styles.miniGold }} onClick={() => void confirmRequest(r)}>
+                              ✅ Conferma richiesta
                             </button>
 
-                            <button style={{ ...styles.miniBtn, ...styles.miniRed }} onClick={() => cancelWhatsApp(r)}>
-                              ❌ Annulla (WhatsApp)
+                            <button style={{ ...styles.miniBtn, ...styles.miniRed }} onClick={() => void cancelRequest(r)}>
+                              ❌ Annulla richiesta
                             </button>
                           </div>
+
+                          {isOpen && (
+                            <div style={styles.moveWrap}>
+                              <div style={styles.moveTitle}>🔁 Sposta appuntamento (nuova data/ora)</div>
+
+                              <div className="mm-move-grid" style={styles.moveGrid}>
+                                <div>
+                                  <div style={{ ...styles.boxLabel, marginBottom: 6 }}>NUOVA DATA</div>
+                                  <input
+                                    style={styles.input}
+                                    type="date"
+                                    value={nd}
+                                    onChange={(e) => setMoveDate((p) => ({ ...p, [r.id]: e.target.value }))}
+                                  />
+                                </div>
+
+                                <div>
+                                  <div style={{ ...styles.boxLabel, marginBottom: 6 }}>NUOVA ORA (HH:mm)</div>
+                                  <input
+                                    style={styles.input}
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="Es. 15:30"
+                                    value={nt}
+                                    onChange={(e) => setMoveTime((p) => ({ ...p, [r.id]: e.target.value }))}
+                                  />
+                                </div>
+                              </div>
+
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                                <button
+                                  style={{ ...styles.miniBtn, ...styles.miniGold, opacity: busy ? 0.7 : 1 }}
+                                  onClick={() => void rescheduleRequest(r)}
+                                  disabled={busy}
+                                >
+                                  {busy ? "Salvo…" : "💬 Invia proposta su WhatsApp"}
+                                </button>
+
+                                <button style={styles.miniBtn} onClick={() => setMoveOpen((p) => ({ ...p, [r.id]: false }))}>
+                                  Chiudi
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -914,6 +1111,11 @@ export default function PannelloAdmin() {
       <style>{`
         @media (max-width: 760px) {
           .mm-grid { grid-template-columns: 1fr !important; }
+          .mm-move-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 520px) {
+          button, a { font-size: 16px !important; }
+          input { font-size: 16px !important; }
         }
       `}</style>
     </div>

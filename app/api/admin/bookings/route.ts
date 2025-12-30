@@ -1,4 +1,3 @@
-// app/api/admin/bookings/route.ts
 import { NextResponse } from "next/server";
 import { getCookieName } from "@/lib/adminAuth";
 
@@ -56,7 +55,6 @@ async function callGoogleScript(payload: Record<string, any>) {
 
     const data = await safeJson(res);
 
-    // nello script Apps Script mettiamo _status nel payload
     const statusFromPayload = Number((data as any)?._status);
     const httpStatus = Number.isFinite(statusFromPayload) ? statusFromPayload : res.status;
 
@@ -77,19 +75,56 @@ function clampInt(n: number, min: number, max: number) {
   return Math.min(Math.max(Math.floor(n), min), max);
 }
 
+/** accetta YYYY-MM-DD oppure DD/MM/YYYY e ritorna YYYY-MM-DD */
+function normalizeDateISO(input: any): string {
+  const s = String(input ?? "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+
+  return "";
+}
+
+/** accetta HH:mm, H:mm, HH.mm, ecc e ritorna HH:mm */
+function normalizeHHmm(input: any): string {
+  let s = String(input ?? "").trim();
+  if (!s) return "";
+  s = s.replace(".", ":").replace(",", ":");
+
+  // se arriva "08:30:00" taglio
+  const parts = s.split(":").filter(Boolean);
+  if (parts.length >= 2) {
+    const h = parts[0];
+    const m = parts[1];
+    if (/^\d{1,2}$/.test(h) && /^\d{2}$/.test(m)) {
+      const hh = String(parseInt(h, 10)).padStart(2, "0");
+      const mm = m;
+      const hi = parseInt(hh, 10);
+      const mi = parseInt(mm, 10);
+      if (hi >= 0 && hi <= 23 && mi >= 0 && mi <= 59) return `${hh}:${mm}`;
+    }
+  }
+  return "";
+}
+
+function isISODate(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+function isHHmm(s: string) {
+  return /^\d{2}:\d{2}$/.test(String(s || "").trim());
+}
+
 /**
- * ✅ Richiesta prenotazione: in UI vogliamo "RICHIESTA"
- * ma lo script attuale usa ancora "NUOVA".
- * Quindi traduciamo:
- * - RICHIESTA -> NUOVA (verso script)
- * - NUOVA -> RICHIESTA (verso UI)
+ * UI = "RICHIESTA"
+ * Script = "NUOVA"
  */
 function toScriptStatus(input: string) {
   const s = String(input || "").trim().toUpperCase();
   if (s === "RICHIESTA") return "NUOVA";
   return s;
 }
-
 function toUiStatus(input: string) {
   const s = String(input || "").trim().toUpperCase();
   if (s === "NUOVA") return "RICHIESTA";
@@ -115,7 +150,6 @@ export async function GET(req: Request) {
       );
     }
 
-    // se lo script ritorna "NUOVA", in UI la mostriamo come "RICHIESTA"
     const rows = Array.isArray(data.rows)
       ? data.rows.map((r: any) => ({
           ...r,
@@ -123,10 +157,7 @@ export async function GET(req: Request) {
         }))
       : [];
 
-    return jsonNoStore(
-      { ok: true, rows, count: data.count ?? (rows.length ?? 0) },
-      { status: 200 }
-    );
+    return jsonNoStore({ ok: true, rows, count: data.count ?? (rows.length ?? 0) }, { status: 200 });
   } catch (err: any) {
     return jsonNoStore({ ok: false, error: `Errore interno: ${String(err?.message || err)}` }, { status: 500 });
   }
@@ -137,12 +168,66 @@ export async function POST(req: Request) {
     if (!isLoggedIn(req)) return jsonNoStore({ ok: false, error: "Non autorizzato." }, { status: 401 });
 
     const body = await req.json().catch(() => null);
-    const id = String(body?.id || "").trim();
-    const statusRaw = String(body?.status || "").trim().toUpperCase();
 
+    const id = String(body?.id || "").trim();
     if (!id) return jsonNoStore({ ok: false, error: "ID mancante." }, { status: 400 });
 
-    // ✅ ora supportiamo anche "RICHIESTA"
+    const action = String(body?.action || "").trim();
+
+    // ✅ 1) SPOSITAMENTO (admin_reschedule)
+    if (action === "admin_reschedule") {
+      // accetto più chiavi per non rompere il pannello
+      const dateISO = normalizeDateISO(body?.dateISO ?? body?.dataISO ?? body?.date ?? body?.data ?? body?.newDate ?? "");
+      const time = normalizeHHmm(body?.time ?? body?.ora ?? body?.newTime ?? body?.newOra ?? "");
+
+      if (!isISODate(dateISO)) {
+        return jsonNoStore(
+          { ok: false, error: "dateISO non valida. Formato richiesto: YYYY-MM-DD (es. 2025-12-30)" },
+          { status: 400 }
+        );
+      }
+      if (!isHHmm(time)) {
+        return jsonNoStore(
+          { ok: false, error: "time non valida. Formato richiesto: HH:mm (es. 08:30)" },
+          { status: 400 }
+        );
+      }
+
+      const { data, httpStatus } = await callGoogleScript({
+        action: "admin_reschedule",
+        id,
+        dateISO,
+        time,
+      });
+
+      if (!data?.ok) {
+        return jsonNoStore(
+          {
+            ok: false,
+            error: data?.error || "Errore admin_reschedule.",
+            details: data?.details,
+            conflict: Boolean((data as any)?.conflict),
+          },
+          { status: Number(httpStatus) || 500 }
+        );
+      }
+
+      return jsonNoStore(
+        {
+          ok: true,
+          message: data?.message ?? "Spostamento salvato.",
+          id: data?.id ?? id,
+          oldId: (data as any)?.oldId,
+          dateISO: data?.dateISO ?? dateISO,
+          time: data?.time ?? time,
+        },
+        { status: 200 }
+      );
+    }
+
+    // ✅ 2) Aggiorna stato (default) = admin_set_status
+    const statusRaw = String(body?.status || "").trim().toUpperCase();
+
     const allowed = ["RICHIESTA", "NUOVA", "CONFERMATA", "ANNULLATA"];
     if (!allowed.includes(statusRaw)) {
       return jsonNoStore(
@@ -168,10 +253,7 @@ export async function POST(req: Request) {
 
     const returned = toUiStatus(data.status ?? statusForScript);
 
-    return jsonNoStore(
-      { ok: true, status: returned, message: data.message ?? "Stato aggiornato." },
-      { status: 200 }
-    );
+    return jsonNoStore({ ok: true, status: returned, message: data.message ?? "Stato aggiornato." }, { status: 200 });
   } catch (err: any) {
     return jsonNoStore({ ok: false, error: `Errore interno: ${String(err?.message || err)}` }, { status: 500 });
   }
