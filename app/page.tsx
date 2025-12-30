@@ -150,7 +150,6 @@ export default function Page() {
         return;
       }
 
-      // ✅ niente WhatsApp automatico / link WhatsApp prenotazione
       setSubmitMsg({ ok: true, text: "Richiesta inviata. Ti contatteremo su WhatsApp per confermare." });
     } catch {
       setSubmitMsg({ ok: false, text: "Errore rete: richiesta non inviata." });
@@ -192,7 +191,6 @@ export default function Page() {
         return;
       }
 
-      // ✅ niente WhatsApp automatico / link WhatsApp annullamento
       setCancelMsg({ ok: true, text: "Annullamento inviato." });
     } catch {
       setCancelMsg({ ok: false, text: "Errore rete: annullamento non inviato." });
@@ -269,14 +267,6 @@ export default function Page() {
       color: "rgba(255,255,255,0.92)",
     },
 
-    grid: {
-      marginTop: 12,
-      display: "grid",
-      gridTemplateColumns: "1.35fr 0.85fr",
-      gap: 12,
-      alignItems: "start",
-    },
-
     card: {
       borderRadius: 18,
       border: "1px solid rgba(255,255,255,0.10)",
@@ -305,7 +295,6 @@ export default function Page() {
       fontSize: 12,
     },
 
-    formGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
     field: { display: "grid", gap: 6 },
     label: { fontSize: 12, opacity: 0.9, fontWeight: 900, letterSpacing: 0.2 },
     input: {
@@ -334,8 +323,6 @@ export default function Page() {
     },
     hint: { marginTop: 8, opacity: 0.82, fontSize: 13, lineHeight: 1.35 },
 
-    rowBtns: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" },
-
     alertOk: {
       marginTop: 10,
       padding: "10px 12px",
@@ -354,7 +341,6 @@ export default function Page() {
     },
 
     rightStack: { display: "grid", gap: 12 },
-
     smallList: { margin: 0, paddingLeft: 18, opacity: 0.9, lineHeight: 1.4, fontWeight: 800 },
 
     footer: { marginTop: 14, textAlign: "center", opacity: 0.65, fontWeight: 800, fontSize: 12 },
@@ -371,7 +357,7 @@ export default function Page() {
           <div style={styles.titleRow}>
             <div>
               <div style={styles.badge}>GALAXBOT AI • TOELETTATURA</div>
-              <div style={styles.h1}>
+              <div className="mm-title" style={styles.h1}>
                 {shopName} <span style={{ opacity: 0.9 }}>🐾</span>
               </div>
               <p style={styles.sub}>
@@ -386,11 +372,10 @@ export default function Page() {
               )}
             </div>
 
-            {/* ✅ RIMOSSO: bottone WhatsApp pubblico */}
             <div />
           </div>
 
-          <div style={styles.topBtns}>
+          <div className="mm-actions" style={styles.topBtns}>
             <button style={{ ...styles.btn, ...styles.btnGold }} onClick={() => setMode("PRENOTA")}>
               ⭐ Prenota ora
             </button>
@@ -409,9 +394,10 @@ export default function Page() {
           </div>
         </div>
 
-        <div style={styles.grid}>
+        {/* ✅ layout responsivo con classi (non selector fragili) */}
+        <div className="mm-layout">
           {/* LEFT */}
-          <div style={styles.card}>
+          <div className="mm-card" style={styles.card}>
             <div style={styles.cardHead}>
               <div style={styles.cardTitle}>
                 {showBooking ? "⭐ Richiesta prenotazione" : showCancel ? "❌ Richiesta annullamento" : "💬 Assistenza"}
@@ -424,7 +410,7 @@ export default function Page() {
             <div style={styles.cardBody}>
               {showBooking && (
                 <>
-                  <div style={styles.formGrid}>
+                  <div className="mm-form-grid">
                     <div style={styles.field}>
                       <div style={styles.label}>Nome proprietario *</div>
                       <input
@@ -518,7 +504,7 @@ export default function Page() {
                     />
                   </div>
 
-                  <div style={styles.rowBtns}>
+                  <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                     <button style={{ ...styles.btn, ...styles.btnGold }} onClick={submitBooking} disabled={submitLoading || slotsLoading} title="Invia richiesta">
                       {submitLoading ? "Invio…" : "⭐ Richiedi prenotazione"}
                     </button>
@@ -534,7 +520,7 @@ export default function Page() {
 
               {showCancel && (
                 <>
-                  <div style={styles.formGrid}>
+                  <div className="mm-form-grid">
                     <div style={styles.field}>
                       <div style={styles.label}>Nome proprietario</div>
                       <input style={styles.input} value={cOwnerName} onChange={(e) => setCOwnerName(e.target.value)} placeholder="Nome e cognome" />
@@ -567,7 +553,7 @@ export default function Page() {
                     </div>
                   </div>
 
-                  <div style={styles.rowBtns}>
+                  <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                     <button style={{ ...styles.btn, ...styles.btnRed }} onClick={submitCancel} disabled={cancelLoading}>
                       {cancelLoading ? "Invio…" : "❌ Invia richiesta annullamento"}
                     </button>
@@ -587,7 +573,7 @@ export default function Page() {
                     Scrivi qui per informazioni su servizi, orari, come preparare il cane, prezzi e disponibilità. Per prenotare usa “Prenota ora”.
                   </div>
 
-                  <div style={styles.rowBtns}>
+                  <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                     <button style={{ ...styles.btn, ...styles.btnGold }} onClick={() => setChatOpen(true)}>
                       ⭐ Apri chat assistenza
                     </button>
@@ -605,7 +591,7 @@ export default function Page() {
 
           {/* RIGHT */}
           <div style={styles.rightStack}>
-            <div style={styles.card}>
+            <div className="mm-card" style={styles.card}>
               <div style={styles.cardHead}>
                 <div style={styles.cardTitle}>✅ Come funziona</div>
                 <div style={{ ...styles.pill, borderColor: "rgba(246,178,26,0.25)" }}>veloce</div>
@@ -620,16 +606,14 @@ export default function Page() {
               </div>
             </div>
 
-            <div style={styles.card}>
+            <div className="mm-card" style={styles.card}>
               <div style={styles.cardHead}>
                 <div style={styles.cardTitle}>💬 Assistenza</div>
               </div>
               <div style={styles.cardBody}>
-                <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.35 }}>
-                  Hai dubbi su servizi o disponibilità? Apri la chat assistenza.
-                </div>
+                <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.35 }}>Hai dubbi su servizi o disponibilità? Apri la chat assistenza.</div>
 
-                <div style={styles.rowBtns}>
+                <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                   <button
                     style={{ ...styles.btn, ...styles.btnGold }}
                     onClick={() => {
@@ -643,7 +627,7 @@ export default function Page() {
               </div>
             </div>
 
-            <div style={styles.card}>
+            <div className="mm-card" style={styles.card}>
               <div style={styles.cardHead}>
                 <div style={styles.cardTitle}>❌ Annullamento</div>
               </div>
@@ -651,7 +635,7 @@ export default function Page() {
                 <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.35 }}>
                   Se devi annullare un appuntamento, invia la richiesta con i dati corretti (telefono + data + ora).
                 </div>
-                <div style={styles.rowBtns}>
+                <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                   <button style={{ ...styles.btn, ...styles.btnRed }} onClick={() => setMode("ANNULLA")}>
                     ❌ Vai a richiesta annullamento
                   </button>
@@ -664,18 +648,44 @@ export default function Page() {
         <div style={styles.footer}>GalaxBot AI</div>
       </div>
 
+      {/* ✅ RESPONSIVE SOLIDO */}
       <style>{`
-        @media (max-width: 980px) {
-          div[style*="grid-template-columns: 1.35fr 0.85fr"] { 
-            grid-template-columns: 1fr !important;
-          }
+        .mm-layout{
+          margin-top: 12px;
+          display: grid;
+          grid-template-columns: 1.35fr 0.85fr;
+          gap: 12px;
+          align-items: start;
         }
+        .mm-form-grid{
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        /* Tablet/Mobile -> 1 colonna */
+        @media (max-width: 980px) {
+          .mm-layout{ grid-template-columns: 1fr !important; }
+        }
+
+        /* Mobile: campi in 1 colonna + bottoni larghi */
         @media (max-width: 520px) {
-          div[style*="grid-template-columns: 1fr 1fr"] {
-            grid-template-columns: 1fr !important;
+          .mm-form-grid{ grid-template-columns: 1fr !important; }
+
+          .mm-actions{ flex-direction: column !important; }
+          .mm-actions button, .mm-actions a{
+            width: 100% !important;
+            justify-content: center !important;
           }
-          input, select, textarea {
+
+          input, select, textarea{
             font-size: 16px !important;
+            min-height: 44px;
+          }
+
+          .mm-title{
+            font-size: 34px !important;
+            line-height: 1.05 !important;
           }
         }
       `}</style>
