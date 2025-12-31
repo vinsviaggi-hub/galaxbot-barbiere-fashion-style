@@ -48,7 +48,6 @@ function normStatus(s?: string): BookingStatus {
 
 function labelStatusForUI(st?: BookingStatus) {
   const s = normStatus(st);
-  // ✅ richiesta = nuovA (non cambiamo i dati su sheets, solo l’etichetta UI)
   if (s === "NUOVA") return "RICHIESTA";
   return s;
 }
@@ -84,6 +83,10 @@ function addDaysISO(iso: string, days: number) {
 
 function isIsoDate(s?: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+
+function isHHMM(s?: string) {
+  return /^\d{2}:\d{2}$/.test(String(s || "").trim());
 }
 
 function normalizeTimeInput(v?: string) {
@@ -127,7 +130,6 @@ function rgba(hex: string, a: number) {
   return `rgba(${c.r},${c.g},${c.b},${a})`;
 }
 
-// ✅ palette chiara (pannello) — NON è quella dell’app
 function statusPillStyle(st: BookingStatus): CSSProperties {
   const s = normStatus(st);
   if (s === "CONFERMATA") {
@@ -144,7 +146,6 @@ function statusPillStyle(st: BookingStatus): CSSProperties {
       color: "rgba(153,27,27,0.98)",
     };
   }
-  // NUOVA -> RICHIESTA
   return {
     background: "rgba(245,158,11,0.16)",
     border: "1px solid rgba(245,158,11,0.45)",
@@ -152,7 +153,6 @@ function statusPillStyle(st: BookingStatus): CSSProperties {
   };
 }
 
-// remap chiavi (quando l'id cambia dopo lo spostamento)
 function remapKey<T extends Record<string, any>>(obj: T, fromKey: string, toKey: string): T {
   if (!fromKey || !toKey || fromKey === toKey) return obj;
   if (!(fromKey in obj)) return obj;
@@ -176,8 +176,6 @@ export default function PannelloAdmin() {
   const badgeTop = biz?.badgeTop ?? biz?.labelTop ?? "GALAXBOT AI • ADMIN";
   const head = biz?.headline ?? biz?.title ?? "4 Zampe";
   const panelTitle = `Prenotazioni • ${head}`;
-
-  // ✅ accent diverso dall’app (se vuoi fisso, metti un colore qui)
   const accent = biz?.panelTheme?.accent || "#0f172a";
 
   function toastStyle(type: "ok" | "err"): CSSProperties {
@@ -261,10 +259,58 @@ export default function PannelloAdmin() {
   const [moveTime, setMoveTime] = useState<Record<string, string>>({});
   const [moveLoading, setMoveLoading] = useState<Record<string, boolean>>({});
 
+  // ✅ nuovi: orari disponibili per la data selezionata
+  const [moveSlots, setMoveSlots] = useState<Record<string, string[]>>({});
+  const [moveSlotsLoading, setMoveSlotsLoading] = useState<Record<string, boolean>>({});
+  const [moveSlotsError, setMoveSlotsError] = useState<Record<string, string>>({});
+
+  const loadMoveAvailability = async (rowId: string, dateISO: string) => {
+    if (!rowId || !isIsoDate(dateISO)) return;
+
+    setMoveSlotsLoading((p) => ({ ...p, [rowId]: true }));
+    setMoveSlotsError((p) => ({ ...p, [rowId]: "" }));
+    setMoveSlots((p) => ({ ...p, [rowId]: [] }));
+
+    try {
+      const res = await fetch(`/api/availability?date=${encodeURIComponent(dateISO)}`, { cache: "no-store" });
+      const data: any = await safeJson(res);
+
+      if (!data?.ok) {
+        setMoveSlotsError((p) => ({ ...p, [rowId]: data?.error || "Errore disponibilità." }));
+        return;
+      }
+
+      const slots = Array.isArray(data?.freeSlots) ? data.freeSlots.map((x: any) => String(x)).filter((x: string) => isHHMM(x)) : [];
+      setMoveSlots((p) => ({ ...p, [rowId]: slots }));
+
+      // se l’ora selezionata non è valida, metti la prima disponibile
+      setMoveTime((p) => {
+        const cur = String(p[rowId] ?? "").trim();
+        const next = slots.length > 0 ? (slots.includes(cur) ? cur : slots[0]) : cur;
+        return { ...p, [rowId]: next };
+      });
+    } catch {
+      setMoveSlotsError((p) => ({ ...p, [rowId]: "Errore rete: impossibile caricare gli orari." }));
+    } finally {
+      setMoveSlotsLoading((p) => ({ ...p, [rowId]: false }));
+    }
+  };
+
   const toggleMove = (r: AdminRow) => {
+    const isCurrentlyOpen = Boolean(moveOpen[r.id]);
+    const willOpen = !isCurrentlyOpen;
+
+    const initDate = moveDate[r.id] ?? (r.dataISO || todayISO());
+    const initTime = moveTime[r.id] ?? (r.ora || "");
+
     setMoveOpen((p) => ({ ...p, [r.id]: !p[r.id] }));
-    setMoveDate((p) => ({ ...p, [r.id]: p[r.id] ?? (r.dataISO || todayISO()) }));
-    setMoveTime((p) => ({ ...p, [r.id]: p[r.id] ?? (r.ora || "") }));
+    setMoveDate((p) => ({ ...p, [r.id]: p[r.id] ?? initDate }));
+    setMoveTime((p) => ({ ...p, [r.id]: p[r.id] ?? initTime }));
+
+    // ✅ quando apro “sposta”, carico subito gli orari liberi per la data selezionata
+    if (willOpen) {
+      void loadMoveAvailability(r.id, initDate);
+    }
   };
 
   const counts = useMemo(() => {
@@ -301,7 +347,6 @@ export default function PannelloAdmin() {
       .filter((r) => {
         if (!fromISO || !toISO) return true;
         const d = String(r.dataISO || "").trim();
-        // se arriva DD/MM/YYYY non filtro (così non sparisce)
         if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return true;
         return d >= fromISO && d <= toISO;
       })
@@ -376,18 +421,14 @@ export default function PannelloAdmin() {
     }
   };
 
-  // ✅ refresh “silenzioso” (non ti cambia UI)
   const loadRowsSilent = async () => {
     try {
       const res = await fetch("/api/admin/bookings?limit=800", { credentials: "include" });
       const data: any = await safeJson(res);
       if (data?.ok) setRows(normalizeList(data));
-    } catch {
-      // silenzioso apposta
-    }
+    } catch {}
   };
 
-  // ✅ ogni 1 minuto (come vuoi tu)
   useEffect(() => {
     if (!loggedIn) return;
     const t = window.setInterval(() => {
@@ -414,7 +455,6 @@ export default function PannelloAdmin() {
     window.open(url, `wa_${Date.now()}`, "noopener,noreferrer");
   }
 
-  // prende SEMPRE la riga aggiornata (se esiste)
   const getFreshRow = (id: string, fallback?: AdminRow) => {
     return rows.find((x) => x.id === id) ?? fallback ?? null;
   };
@@ -466,7 +506,6 @@ export default function PannelloAdmin() {
     await setStatus(fr.id, "ANNULLATA");
   };
 
-  // --- SPOSITAMENTO: salva su Sheets + apre WhatsApp con proposta ---
   const rescheduleRequest = async (r: AdminRow) => {
     const d = String(moveDate[r.id] ?? "").trim();
     const tRaw = String(moveTime[r.id] ?? "").trim();
@@ -499,10 +538,7 @@ export default function PannelloAdmin() {
 
       if (!(data as any)?.ok) {
         const conflict = Boolean((data as any)?.conflict);
-        showToast(
-          "err",
-          conflict ? "Orario già occupato: scegli un altro slot." : ((data as any)?.error || "Spostamento non riuscito.")
-        );
+        showToast("err", conflict ? "Orario già occupato: scegli un altro slot." : ((data as any)?.error || "Spostamento non riuscito."));
         return;
       }
 
@@ -529,6 +565,10 @@ export default function PannelloAdmin() {
         setMoveDate((p) => remapKey(p, oldId, newId));
         setMoveTime((p) => remapKey(p, oldId, newId));
         setMoveLoading((p) => remapKey(p, oldId, newId));
+
+        setMoveSlots((p) => remapKey(p, oldId, newId));
+        setMoveSlotsLoading((p) => remapKey(p, oldId, newId));
+        setMoveSlotsError((p) => remapKey(p, oldId, newId));
       }
 
       showToast("ok", "Spostamento salvato. Ora preparo WhatsApp…");
@@ -557,7 +597,6 @@ export default function PannelloAdmin() {
     if (!checking && !loggedIn) router.replace("/pannello/login");
   }, [checking, loggedIn, router]);
 
-  // ✅ SOLO colori richiesti: header meno bianco + bordi card neri
   const styles: Record<string, CSSProperties> = {
     page: {
       minHeight: "100vh",
@@ -571,7 +610,6 @@ export default function PannelloAdmin() {
     },
     container: { maxWidth: 1120, margin: "0 auto" },
 
-    // ✅ HEADER: meno bianco, più scuro/elegante
     header: {
       borderRadius: 18,
       border: "1px solid rgba(0,0,0,0.30)",
@@ -589,7 +627,6 @@ export default function PannelloAdmin() {
       flexWrap: "wrap",
     },
 
-    // ✅ Badge più contrastato
     badge: {
       display: "inline-flex",
       alignItems: "center",
@@ -726,7 +763,6 @@ export default function PannelloAdmin() {
 
     list: { display: "grid", gap: 14 },
 
-    // ✅ CARD PRENOTAZIONI: bordo nero per dividerle
     card: {
       borderRadius: 16,
       background: "linear-gradient(180deg, rgba(255,255,255,0.90), rgba(255,255,255,0.82))",
@@ -823,14 +859,7 @@ export default function PannelloAdmin() {
       outline: "none",
     },
 
-    footer: {
-      marginTop: 14,
-      opacity: 0.65,
-      fontSize: 12,
-      textAlign: "center",
-      fontWeight: 900,
-      color: "rgba(15,23,42,0.72)",
-    },
+    footer: { marginTop: 14, opacity: 0.65, fontSize: 12, textAlign: "center", fontWeight: 900, color: "rgba(15,23,42,0.72)" },
 
     toastWrap: {
       position: "fixed",
@@ -982,6 +1011,10 @@ export default function PannelloAdmin() {
                       const nt = moveTime[r.id] ?? (r.ora || "");
                       const busy = Boolean(moveLoading[r.id]);
 
+                      const slots = moveSlots[r.id] ?? [];
+                      const slotsBusy = Boolean(moveSlotsLoading[r.id]);
+                      const slotsErr = String(moveSlotsError[r.id] ?? "").trim();
+
                       return (
                         <div key={r.id} style={styles.card}>
                           <div style={styles.cardTop}>
@@ -1063,21 +1096,69 @@ export default function PannelloAdmin() {
                                     style={styles.input}
                                     type="date"
                                     value={nd}
-                                    onChange={(e) => setMoveDate((p) => ({ ...p, [r.id]: e.target.value }))}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setMoveDate((p) => ({ ...p, [r.id]: v }));
+                                      // ✅ appena cambia la data, ricarico gli orari liberi per quella data
+                                      void loadMoveAvailability(r.id, v);
+                                    }}
                                   />
                                 </div>
 
                                 <div>
-                                  <div style={{ ...styles.boxLabel, marginBottom: 6 }}>NUOVA ORA (HH:mm)</div>
-                                  <input
-                                    style={styles.input}
-                                    type="text"
-                                    inputMode="numeric"
-                                    placeholder="Es. 15:30"
-                                    value={nt}
-                                    onChange={(e) => setMoveTime((p) => ({ ...p, [r.id]: e.target.value }))}
-                                  />
+                                  <div style={{ ...styles.boxLabel, marginBottom: 6 }}>NUOVA ORA (scegli tra liberi)</div>
+
+                                  {slotsBusy ? (
+                                    <select style={styles.input as any} value={nt} disabled>
+                                      <option>Carico orari…</option>
+                                    </select>
+                                  ) : slots.length > 0 ? (
+                                    <select
+                                      style={styles.input as any}
+                                      value={nt}
+                                      onChange={(e) => setMoveTime((p) => ({ ...p, [r.id]: e.target.value }))}
+                                    >
+                                      {slots.map((s) => (
+                                        <option key={s} value={s}>
+                                          {s}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    // fallback: se non arrivano slot (o errore), lasciamo comunque l’input manuale per non bloccare il pannello
+                                    <input
+                                      style={styles.input}
+                                      type="text"
+                                      inputMode="numeric"
+                                      placeholder="Es. 15:30"
+                                      value={nt}
+                                      onChange={(e) => setMoveTime((p) => ({ ...p, [r.id]: e.target.value }))}
+                                    />
+                                  )}
                                 </div>
+                              </div>
+
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
+                                <button
+                                  style={{ ...styles.miniBtn, opacity: slotsBusy ? 0.7 : 1 }}
+                                  onClick={() => void loadMoveAvailability(r.id, String(moveDate[r.id] ?? nd))}
+                                  disabled={slotsBusy}
+                                  title="Ricarica orari"
+                                >
+                                  {slotsBusy ? "Carico…" : "🔎 Mostra orari liberi"}
+                                </button>
+
+                                {slotsErr ? (
+                                  <div style={{ ...styles.error, marginTop: 0, padding: "8px 10px" }}>{slotsErr}</div>
+                                ) : slots.length === 0 ? (
+                                  <div style={{ ...styles.ok, marginTop: 0, padding: "8px 10px" }}>
+                                    Nessun orario libero per questa data (puoi cambiare data).
+                                  </div>
+                                ) : (
+                                  <div style={{ ...styles.ok, marginTop: 0, padding: "8px 10px" }}>
+                                    Orari liberi trovati: <b>{slots.length}</b>
+                                  </div>
+                                )}
                               </div>
 
                               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
@@ -1115,7 +1196,7 @@ export default function PannelloAdmin() {
         }
         @media (max-width: 520px) {
           button, a { font-size: 16px !important; }
-          input { font-size: 16px !important; }
+          input, select { font-size: 16px !important; }
         }
       `}</style>
     </div>
