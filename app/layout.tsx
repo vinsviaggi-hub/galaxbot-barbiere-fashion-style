@@ -11,7 +11,6 @@ export const metadata: Metadata = {
   description: "Prenotazioni barber shop e assistenza su WhatsApp.",
   manifest: "/manifest.webmanifest",
 
-  // ✅ Icone: IMPORTANTISSIMO per iPhone (usa apple-touch-icon.png)
   icons: {
     icon: [
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
@@ -20,7 +19,6 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
 
-  // ✅ Aiuta iOS/Safari a trattarla come “app”
   appleWebApp: {
     capable: true,
     title: "Fashion Style",
