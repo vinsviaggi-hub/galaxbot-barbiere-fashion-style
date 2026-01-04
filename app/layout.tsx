@@ -4,15 +4,15 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "4 Zampe",
-    template: "%s · 4 Zampe",
+    default: "Fashion Style",
+    template: "%s · Fashion Style",
   },
-  applicationName: "4 Zampe",
-  description: "Prenotazioni e assistenza per toelettatura.",
-  manifest: "/manifest.webmanifest", // o "/manifest" se lo gestisci così
+  applicationName: "Fashion Style",
+  description: "Prenotazioni barber shop e assistenza.",
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: "/icons/icon-192.png",
-    apple: "/icons/icon-192.png",
+    apple: "/apple-touch-icon.png",
   },
 };
 

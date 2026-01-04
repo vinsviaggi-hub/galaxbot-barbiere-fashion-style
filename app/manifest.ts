@@ -2,14 +2,14 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "4 Zampe Toeletta",
-    short_name: "4 Zampe",
-    description: "Prenotazioni e gestione toeletta",
-    start_url: "/?v=4zampe",
+    name: "Fashion Style · Prenota",
+    short_name: "Prenota",
+    description: "Prenotazioni barber shop",
+    start_url: "/",
     scope: "/",
     display: "standalone",
     background_color: "#ffffff",
-    theme_color: "#f59e0b",
+    theme_color: "#2563eb",
     icons: [
       {
         src: "/icons/icon-192.png",

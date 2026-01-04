@@ -83,9 +83,9 @@ function normalizeModeFromReq(req: Request, bodyMode?: any) {
   const fromBody = String(bodyMode || "").trim().toUpperCase();
   const mode = fromBody || fromQuery;
 
-  // DEFAULT: REQUEST per 4 zampe
-  if (mode === "BOOKING") return "BOOKING";
-  return "REQUEST";
+  // ✅ DEFAULT: BOOKING (barbiere / prenotazioni classiche)
+  if (mode === "REQUEST") return "REQUEST";
+  return "BOOKING";
 }
 
 async function handle(req: Request, bodyMaybe?: any) {
@@ -99,8 +99,7 @@ async function handle(req: Request, bodyMaybe?: any) {
   const { data, httpStatus } = await callGoogleScript({
     action: "get_availability",
     date,
-
-    // ✅ per 4 zampe: disponibilità in modalità richiesta
+    // compat: se un giorno vuoi distinguere, resta pronto
     requestMode: mode === "REQUEST",
     mode,
   });

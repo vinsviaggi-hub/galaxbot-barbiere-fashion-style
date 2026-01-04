@@ -21,16 +21,25 @@ function buildWhatsAppUrl(shopPhone: string, text: string) {
   return `https://wa.me/${n}?text=${t}`;
 }
 
+function isMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+function toItDate(iso: string) {
+  const s = String(iso || "").trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return s;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 type Props = {
   // opzionale: se vuoi passarlo da page.tsx
   shopWhatsApp?: string; // es: "+393331234567"
   businessName?: string; // es: "4 Zampe"
 };
 
-export default function CancelBookingForm({
-  shopWhatsApp,
-  businessName = "4 Zampe",
-}: Props) {
+export default function CancelBookingForm({ shopWhatsApp, businessName = "4 Zampe" }: Props) {
   const SHOP_WA =
     shopWhatsApp ||
     (process.env.NEXT_PUBLIC_SHOP_WHATSAPP ?? "").trim() ||
@@ -68,7 +77,8 @@ export default function CancelBookingForm({
       const owner = ownerName.trim();
       const dog = dogName.trim();
       const tel = normalizePhoneForWa(phone);
-      const d = date.trim();
+      const dIso = date.trim();
+      const dIt = toItDate(dIso);
       const t = time.trim();
 
       const msg = [
@@ -78,7 +88,7 @@ export default function CancelBookingForm({
         `• Cane: ${dog}`,
         `• Proprietario: ${owner}`,
         `• Telefono: ${tel}`,
-        `• Data: ${d}`,
+        `• Data: ${dIt}`,
         `• Ora: ${t}`,
         ``,
         `Se non è possibile annullare, posso spostarlo ad un altro orario/giorno. Grazie!`,
@@ -86,8 +96,13 @@ export default function CancelBookingForm({
 
       const url = buildWhatsAppUrl(SHOP_WA, msg);
 
-      // apre WhatsApp
-      window.open(url, "_blank", "noopener,noreferrer");
+      // ✅ FIX “pagina bianca” su iPhone:
+      // su mobile apri nella stessa scheda; su desktop puoi aprire in nuova tab
+      if (isMobileDevice()) {
+        window.location.href = url;
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
     } catch (e: any) {
       setErr(String(e?.message || e || "Errore."));
     } finally {
@@ -121,12 +136,7 @@ export default function CancelBookingForm({
 
           <label style={styles.label}>
             Nome del cane <span style={styles.req}>*</span>
-            <input
-              value={dogName}
-              onChange={(e) => setDogName(e.target.value)}
-              placeholder="Es. Luna"
-              style={styles.input}
-            />
+            <input value={dogName} onChange={(e) => setDogName(e.target.value)} placeholder="Es. Luna" style={styles.input} />
           </label>
 
           <label style={styles.label}>
@@ -143,30 +153,24 @@ export default function CancelBookingForm({
 
           <label style={styles.label}>
             Data <span style={styles.req}>*</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              style={styles.input}
-            />
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={styles.input} />
             <div style={styles.help}>Seleziona la stessa data dell’appuntamento.</div>
           </label>
 
           <label style={styles.label}>
             Ora (HH:mm) <span style={styles.req}>*</span>
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              style={styles.input}
-            />
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} style={styles.input} />
             <div style={styles.help}>Qui i “:” ci sono sempre (es. 08:30).</div>
           </label>
         </div>
 
         {err ? <div style={styles.errorBox}>{err}</div> : null}
 
-        <button type="submit" disabled={!canSubmit || loading} style={{ ...styles.btn, opacity: !canSubmit || loading ? 0.7 : 1 }}>
+        <button
+          type="submit"
+          disabled={!canSubmit || loading}
+          style={{ ...styles.btn, opacity: !canSubmit || loading ? 0.7 : 1 }}
+        >
           {loading ? "Apro WhatsApp..." : "Chiedi annullamento"}
         </button>
 
@@ -183,8 +187,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 18,
     padding: 18,
     border: "1px solid rgba(255,255,255,0.16)",
-    background:
-      "linear-gradient(180deg, rgba(180,40,40,0.40) 0%, rgba(80,20,20,0.25) 100%)",
+    background: "linear-gradient(180deg, rgba(180,40,40,0.40) 0%, rgba(80,20,20,0.25) 100%)",
     boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
     marginTop: 14,
   },
@@ -195,12 +198,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     marginBottom: 6,
   },
-  title: {
-    margin: 0,
-    fontSize: 22,
-    fontWeight: 800,
-    letterSpacing: 0.2,
-  },
+  title: { margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: 0.2 },
   badge: {
     fontSize: 12,
     fontWeight: 800,
@@ -209,32 +207,11 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(255, 90, 90, 0.22)",
     border: "1px solid rgba(255, 90, 90, 0.35)",
   },
-  subtitle: {
-    margin: "6px 0 14px 0",
-    opacity: 0.9,
-    lineHeight: 1.35,
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-  },
-  label: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    fontSize: 13,
-    fontWeight: 700,
-  },
-  req: {
-    color: "rgba(255,170,170,1)",
-    fontWeight: 900,
-  },
+  subtitle: { margin: "6px 0 14px 0", opacity: 0.9, lineHeight: 1.35 },
+  form: { display: "flex", flexDirection: "column", gap: 12 },
+  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+  label: { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, fontWeight: 700 },
+  req: { color: "rgba(255,170,170,1)", fontWeight: 900 },
   input: {
     width: "100%",
     padding: "12px 12px",
@@ -245,11 +222,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "white",
     fontSize: 15,
   },
-  help: {
-    fontSize: 12,
-    opacity: 0.8,
-    fontWeight: 500,
-  },
+  help: { fontSize: 12, opacity: 0.8, fontWeight: 500 },
   errorBox: {
     padding: 10,
     borderRadius: 12,
@@ -267,14 +240,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 15,
     cursor: "pointer",
   },
-  note: {
-    fontSize: 12,
-    opacity: 0.85,
-    lineHeight: 1.35,
-  },
+  note: { fontSize: 12, opacity: 0.85, lineHeight: 1.35 },
 };
-
-// responsive semplice
-if (typeof window !== "undefined") {
-  // niente
-}

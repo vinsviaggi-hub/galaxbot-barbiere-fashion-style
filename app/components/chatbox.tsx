@@ -148,7 +148,10 @@ export default function ChatBox() {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") sendMessage();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendMessage();
+    }
   }
 
   function formatTime(ts: number) {
@@ -171,22 +174,14 @@ export default function ChatBox() {
 
       <div className={styles.body}>
         <div className={styles.messages} ref={listRef}>
-          {messages.map((m) => (
+          {messages.map((m, i) => (
             <div
-              key={m.ts}
+              key={`${m.ts}-${i}`}
               className={`${styles.row} ${m.role === "user" ? styles.rowUser : styles.rowBot}`}
             >
-              <div
-                className={`${styles.bubble} ${
-                  m.role === "user" ? styles.userBubble : styles.botBubble
-                }`}
-              >
+              <div className={`${styles.bubble} ${m.role === "user" ? styles.userBubble : styles.botBubble}`}>
                 {m.content}
-                <div
-                  className={`${styles.meta} ${
-                    m.role === "user" ? styles.metaUser : styles.metaBot
-                  }`}
-                >
+                <div className={`${styles.meta} ${m.role === "user" ? styles.metaUser : styles.metaBot}`}>
                   {m.role === "user" ? "Tu" : "Assistente"} • {formatTime(m.ts)}
                 </div>
               </div>

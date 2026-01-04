@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -15,7 +16,6 @@ function isIsoDate(s: string) {
 function isTime(s: string) {
   return /^\d{2}:\d{2}$/.test(String(s || "").trim());
 }
-
 function safeJson<T = any>(text: string): T | null {
   try {
     return JSON.parse(text);
@@ -23,7 +23,6 @@ function safeJson<T = any>(text: string): T | null {
     return null;
   }
 }
-
 function todayISO() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -41,21 +40,29 @@ export default function Page() {
     }
   }, []);
 
-  const shopName = String(biz?.name || biz?.title || "4 Zampe").trim();
+  const shopName = String(biz?.headline || biz?.title || biz?.name || "Barber Shop").trim();
   const shopCity = String(biz?.city || "").trim();
-  const shopPhone = String(biz?.phone || biz?.whatsapp || "").trim(); // SOLO display
+  const shopPhone = String(biz?.phone || biz?.whatsapp || "").trim(); // solo display
   const shopAddress = String(biz?.address || "").trim();
+
+  const badgeTop = String(biz?.badgeTop || biz?.labelTop || "GALAXBOT AI • BARBER").trim();
+
+  const services: string[] =
+    Array.isArray(biz?.servicesList) && biz.servicesList.length > 0
+      ? biz.servicesList
+      : ["Taglio", "Barba", "Taglio + Barba", "Shampoo", "Styling"];
+
+  const helpText =
+    String(biz?.bot?.helpText || "").trim() ||
+    "Scrivi qui per info su servizi, orari, prezzi e disponibilità. Per prenotare usa “Prenota ora”.";
 
   const [mode, setMode] = useState<UiMode>("PRENOTA");
   const [chatOpen, setChatOpen] = useState(false);
 
-  // --- Prenota
-  const [ownerName, setOwnerName] = useState("");
-  const [dogName, setDogName] = useState("");
+  // --- Prenota (Barbiere)
+  const [clientName, setClientName] = useState("");
   const [phone, setPhone] = useState("");
-  const [taglia, setTaglia] = useState("Media");
-  const [pelo, setPelo] = useState("Corto");
-  const [service, setService] = useState("Bagno + Asciugatura");
+  const [service, setService] = useState(services[0] || "");
   const [dateISO, setDateISO] = useState(todayISO());
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
@@ -68,8 +75,7 @@ export default function Page() {
   const [submitMsg, setSubmitMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // --- Annulla
-  const [cOwnerName, setCOwnerName] = useState("");
-  const [cDogName, setCDogName] = useState("");
+  const [cName, setCName] = useState("");
   const [cPhone, setCPhone] = useState("");
   const [cDateISO, setCDateISO] = useState(todayISO());
   const [cTime, setCTime] = useState("");
@@ -78,18 +84,22 @@ export default function Page() {
 
   async function loadAvailability(iso: string) {
     if (!isIsoDate(iso)) return;
+
     setSlotsLoading(true);
     setSlotsError(null);
     setFreeSlots([]);
     setTime("");
+
     try {
       const res = await fetch(`/api/availability?date=${encodeURIComponent(iso)}`, { cache: "no-store" });
       const txt = await res.text();
       const data = safeJson<any>(txt) ?? { ok: false, error: "Risposta non valida." };
+
       if (!data?.ok) {
         setSlotsError(data?.error || "Errore disponibilità.");
         return;
       }
+
       const slots = Array.isArray(data.freeSlots) ? data.freeSlots.filter((x: any) => isTime(String(x))) : [];
       setFreeSlots(slots);
       if (slots.length > 0) setTime(slots[0]);
@@ -115,29 +125,33 @@ export default function Page() {
     setSubmitMsg(null);
 
     const p = normalizePhone(phone);
-    if (!ownerName.trim() || !dogName.trim() || !p || !isIsoDate(dateISO) || !isTime(time)) {
-      setSubmitMsg({ ok: false, text: "Compila: nome proprietario, nome cane, telefono, data e ora." });
+    if (!clientName.trim() || !p || !service.trim() || !isIsoDate(dateISO) || !isTime(time)) {
+      setSubmitMsg({ ok: false, text: "Compila: nome cliente, telefono, servizio, data e ora." });
       return;
     }
 
     setSubmitLoading(true);
     try {
+      // ✅ compatibilità con la tua API attuale: mando taglia/pelo fissi
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
           action: "create_booking",
-          ownerName: ownerName.trim(),
-          dogName: dogName.trim(),
+          ownerName: clientName.trim(), // -> colonna nome
+          name: clientName.trim(), // compatibilità
           phone: p,
-          taglia,
-          pelo,
           service,
           date: dateISO,
           time,
           notes: notes.trim(),
           canale: "WEB",
+
+          // 👇 per non rompere l’API se se li aspetta
+          dogName: "—",
+          taglia: "—",
+          pelo: "—",
         }),
       });
 
@@ -145,12 +159,18 @@ export default function Page() {
       const data = safeJson<any>(txt) ?? { ok: false, error: "Risposta non valida." };
 
       if (!data?.ok) {
-        const err = data?.error || "Prenotazione non riuscita.";
-        setSubmitMsg({ ok: false, text: err });
+        setSubmitMsg({ ok: false, text: data?.error || "Prenotazione non riuscita." });
+        await loadAvailability(dateISO);
         return;
       }
 
-      setSubmitMsg({ ok: true, text: "Richiesta inviata. Ti contatteremo su WhatsApp per confermare." });
+      setSubmitMsg({ ok: true, text: "✅ Richiesta inviata. Ti contattiamo su WhatsApp per confermare." });
+
+      // reset + reload
+      setClientName("");
+      setPhone("");
+      setNotes("");
+      await loadAvailability(dateISO);
     } catch {
       setSubmitMsg({ ok: false, text: "Errore rete: richiesta non inviata." });
     } finally {
@@ -178,8 +198,8 @@ export default function Page() {
           phone: p,
           date: cDateISO,
           time: cTime,
-          ownerName: cOwnerName.trim(),
-          dogName: cDogName.trim(),
+          ownerName: cName.trim(), // facoltativo
+          dogName: "—",
         }),
       });
 
@@ -191,7 +211,12 @@ export default function Page() {
         return;
       }
 
-      setCancelMsg({ ok: true, text: "Annullamento inviato." });
+      setCancelMsg({ ok: true, text: "✅ Richiesta di annullamento inviata." });
+
+      // reset
+      setCName("");
+      setCPhone("");
+      setCTime("");
     } catch {
       setCancelMsg({ ok: false, text: "Errore rete: annullamento non inviato." });
     } finally {
@@ -285,7 +310,6 @@ export default function Page() {
     },
     cardTitle: { fontWeight: 1000, letterSpacing: 0.2, display: "flex", gap: 10, alignItems: "center" },
     cardBody: { padding: 14 },
-
     pill: {
       padding: "7px 10px",
       borderRadius: 999,
@@ -342,7 +366,6 @@ export default function Page() {
 
     rightStack: { display: "grid", gap: 12 },
     smallList: { margin: 0, paddingLeft: 18, opacity: 0.9, lineHeight: 1.4, fontWeight: 800 },
-
     footer: { marginTop: 14, textAlign: "center", opacity: 0.65, fontWeight: 800, fontSize: 12 },
   };
 
@@ -356,13 +379,16 @@ export default function Page() {
         <div style={styles.header}>
           <div style={styles.titleRow}>
             <div>
-              <div style={styles.badge}>GALAXBOT AI • TOELETTATURA</div>
+              <div style={styles.badge}>{badgeTop}</div>
+
               <div className="mm-title" style={styles.h1}>
-                {shopName} <span style={{ opacity: 0.9 }}>🐾</span>
+                {shopName} <span style={{ opacity: 0.9 }}>✂️</span>
               </div>
+
               <p style={styles.sub}>
-                Richiedi un appuntamento scegliendo <b>data</b> e <b>orario disponibile</b>. Ti contattiamo su WhatsApp per la conferma.
+                Prenota scegliendo <b>data</b> e <b>orario disponibile</b>. Ti contattiamo su WhatsApp per la conferma.
               </p>
+
               {(shopCity || shopAddress || shopPhone) && (
                 <p style={{ ...styles.sub, marginTop: 6 }}>
                   {shopCity ? <>📍 {shopCity} </> : null}
@@ -394,7 +420,6 @@ export default function Page() {
           </div>
         </div>
 
-        {/* ✅ layout responsivo con classi (non selector fragili) */}
         <div className="mm-layout">
           {/* LEFT */}
           <div className="mm-card" style={styles.card}>
@@ -403,7 +428,7 @@ export default function Page() {
                 {showBooking ? "⭐ Richiesta prenotazione" : showCancel ? "❌ Richiesta annullamento" : "💬 Assistenza"}
               </div>
               <div style={styles.pill}>
-                {showBooking ? "Compila → scegli data → scegli orario → invia" : showCancel ? "Inserisci dati corretti → invia" : "Scrivi in chat"}
+                {showBooking ? "Nome → data → ora → invia" : showCancel ? "Telefono + data + ora → invia" : "Scrivi in chat"}
               </div>
             </div>
 
@@ -412,19 +437,14 @@ export default function Page() {
                 <>
                   <div className="mm-form-grid">
                     <div style={styles.field}>
-                      <div style={styles.label}>Nome proprietario *</div>
+                      <div style={styles.label}>Nome cliente *</div>
                       <input
                         style={styles.input}
-                        value={ownerName}
-                        onChange={(e) => setOwnerName(e.target.value)}
-                        placeholder="Nome e cognome"
+                        value={clientName}
+                        onChange={(e) => setClientName(e.target.value)}
+                        placeholder="Es. Marco Rossi"
                         autoComplete="name"
                       />
-                    </div>
-
-                    <div style={styles.field}>
-                      <div style={styles.label}>Nome cane *</div>
-                      <input style={styles.input} value={dogName} onChange={(e) => setDogName(e.target.value)} placeholder="Es. Luna" />
                     </div>
 
                     <div style={styles.field}>
@@ -442,35 +462,23 @@ export default function Page() {
                     <div style={styles.field}>
                       <div style={styles.label}>Servizio *</div>
                       <select style={styles.input as any} value={service} onChange={(e) => setService(e.target.value)}>
-                        <option>Bagno + Asciugatura</option>
-                        <option>Toelettatura completa</option>
-                        <option>Taglio</option>
-                        <option>Unghie</option>
-                        <option>Pulizia orecchie</option>
-                      </select>
-                    </div>
-
-                    <div style={styles.field}>
-                      <div style={styles.label}>Taglia *</div>
-                      <select style={styles.input as any} value={taglia} onChange={(e) => setTaglia(e.target.value)}>
-                        <option>Piccola</option>
-                        <option>Media</option>
-                        <option>Grande</option>
-                      </select>
-                    </div>
-
-                    <div style={styles.field}>
-                      <div style={styles.label}>Pelo *</div>
-                      <select style={styles.input as any} value={pelo} onChange={(e) => setPelo(e.target.value)}>
-                        <option>Corto</option>
-                        <option>Medio</option>
-                        <option>Lungo</option>
+                        {services.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
                     <div style={styles.field}>
                       <div style={styles.label}>Data *</div>
-                      <input style={styles.input} type="date" value={dateISO} onChange={(e) => void onChangeDate(e.target.value)} />
+                      <input
+                        style={styles.input}
+                        type="date"
+                        value={dateISO}
+                        min={todayISO()}
+                        onChange={(e) => void onChangeDate(e.target.value)}
+                      />
                     </div>
 
                     <div style={styles.field}>
@@ -500,12 +508,16 @@ export default function Page() {
                       style={styles.textarea}
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Preferenze, allergie, nodi, cane sensibile al phon…"
+                      placeholder="Es. sfumatura alta, solo forbici, barba corta…"
                     />
                   </div>
 
                   <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
-                    <button style={{ ...styles.btn, ...styles.btnGold }} onClick={submitBooking} disabled={submitLoading || slotsLoading} title="Invia richiesta">
+                    <button
+                      style={{ ...styles.btn, ...styles.btnGold }}
+                      onClick={submitBooking}
+                      disabled={submitLoading || slotsLoading}
+                    >
                       {submitLoading ? "Invio…" : "⭐ Richiedi prenotazione"}
                     </button>
                   </div>
@@ -513,7 +525,7 @@ export default function Page() {
                   {submitMsg ? (
                     <div style={submitMsg.ok ? styles.alertOk : styles.alertErr}>{submitMsg.text}</div>
                   ) : (
-                    <div style={styles.hint}>Dopo l’invio, ti contattiamo su WhatsApp per confermare l’orario.</div>
+                    <div style={styles.hint}>Dopo l’invio, ti contattiamo su WhatsApp per confermare.</div>
                   )}
                 </>
               )}
@@ -522,13 +534,13 @@ export default function Page() {
                 <>
                   <div className="mm-form-grid">
                     <div style={styles.field}>
-                      <div style={styles.label}>Nome proprietario</div>
-                      <input style={styles.input} value={cOwnerName} onChange={(e) => setCOwnerName(e.target.value)} placeholder="Nome e cognome" />
-                    </div>
-
-                    <div style={styles.field}>
-                      <div style={styles.label}>Nome cane</div>
-                      <input style={styles.input} value={cDogName} onChange={(e) => setCDogName(e.target.value)} placeholder="Es. Luna" />
+                      <div style={styles.label}>Nome (facoltativo)</div>
+                      <input
+                        style={styles.input}
+                        value={cName}
+                        onChange={(e) => setCName(e.target.value)}
+                        placeholder="Es. Marco"
+                      />
                     </div>
 
                     <div style={styles.field}>
@@ -544,12 +556,23 @@ export default function Page() {
 
                     <div style={styles.field}>
                       <div style={styles.label}>Data *</div>
-                      <input style={styles.input} type="date" value={cDateISO} onChange={(e) => setCDateISO(e.target.value)} />
+                      <input
+                        style={styles.input}
+                        type="date"
+                        value={cDateISO}
+                        min={todayISO()}
+                        onChange={(e) => setCDateISO(e.target.value)}
+                      />
                     </div>
 
                     <div style={styles.field}>
-                      <div style={styles.label}>Ora (HH:mm) *</div>
-                      <input style={styles.input} value={cTime} onChange={(e) => setCTime(e.target.value)} placeholder="Es. 08:30" inputMode="numeric" />
+                      <div style={styles.label}>Ora *</div>
+                      <input
+                        style={styles.input}
+                        type="time"
+                        value={cTime}
+                        onChange={(e) => setCTime(e.target.value)}
+                      />
                     </div>
                   </div>
 
@@ -569,9 +592,7 @@ export default function Page() {
 
               {showHelp && (
                 <>
-                  <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.4 }}>
-                    Scrivi qui per informazioni su servizi, orari, come preparare il cane, prezzi e disponibilità. Per prenotare usa “Prenota ora”.
-                  </div>
+                  <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.4 }}>{helpText}</div>
 
                   <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                     <button style={{ ...styles.btn, ...styles.btnGold }} onClick={() => setChatOpen(true)}>
@@ -601,7 +622,7 @@ export default function Page() {
                   <li>Scegli la data</li>
                   <li>Seleziona un orario disponibile</li>
                   <li>Invia la richiesta</li>
-                  <li>Ti contattiamo su WhatsApp per confermare</li>
+                  <li>Conferma su WhatsApp</li>
                 </ol>
               </div>
             </div>
@@ -611,7 +632,9 @@ export default function Page() {
                 <div style={styles.cardTitle}>💬 Assistenza</div>
               </div>
               <div style={styles.cardBody}>
-                <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.35 }}>Hai dubbi su servizi o disponibilità? Apri la chat assistenza.</div>
+                <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.35 }}>
+                  Hai dubbi su servizi o disponibilità? Apri la chat assistenza.
+                </div>
 
                 <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                   <button
@@ -633,11 +656,11 @@ export default function Page() {
               </div>
               <div style={styles.cardBody}>
                 <div style={{ opacity: 0.88, fontWeight: 800, lineHeight: 1.35 }}>
-                  Se devi annullare un appuntamento, invia la richiesta con i dati corretti (telefono + data + ora).
+                  Se devi annullare, invia la richiesta con telefono + data + ora.
                 </div>
                 <div className="mm-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
                   <button style={{ ...styles.btn, ...styles.btnRed }} onClick={() => setMode("ANNULLA")}>
-                    ❌ Vai a richiesta annullamento
+                    ❌ Vai ad annullamento
                   </button>
                 </div>
               </div>
@@ -648,7 +671,6 @@ export default function Page() {
         <div style={styles.footer}>GalaxBot AI</div>
       </div>
 
-      {/* ✅ RESPONSIVE SOLIDO */}
       <style>{`
         .mm-layout{
           margin-top: 12px;
@@ -663,12 +685,10 @@ export default function Page() {
           gap: 10px;
         }
 
-        /* Tablet/Mobile -> 1 colonna */
         @media (max-width: 980px) {
           .mm-layout{ grid-template-columns: 1fr !important; }
         }
 
-        /* Mobile: campi in 1 colonna + bottoni larghi */
         @media (max-width: 520px) {
           .mm-form-grid{ grid-template-columns: 1fr !important; }
 

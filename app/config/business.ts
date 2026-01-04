@@ -76,23 +76,28 @@ export type BusinessConfig = {
 };
 
 const BUSINESS: BusinessConfig = {
-  slug: "4-zampe",
+  // ✅ slug unico per questo negozio/progetto
+  slug: "barbiere-fashion-style",
 
-  badgeTop: "GALAXBOT AI · TOELETTATURA",
-  headline: "4 Zampe",
-  heroEmoji: "🐾",
-  subheadline:
-    "Prenota bagno, toelettatura e cura del cane in modo semplice. Gestiamo prenotazioni e cancellazioni in pochi secondi.",
+  // ✅ testata
+  badgeTop: "GALAXBOT AI · BARBER SHOP",
+  headline: "Fashion Style",
+  heroEmoji: "💈",
+  subheadline: "Prenota il tuo taglio in pochi secondi. Conferma e gestione semplice delle prenotazioni.",
 
-  servicesShort: "Bagno, toelettatura, taglio, unghie, pulizia orecchie",
-  servicesList: ["Bagno", "Toelettatura", "Taglio", "Unghie", "Pulizia orecchie"],
+  // ✅ servizi
+  servicesShort: "Taglio uomo, Barba, Taglio + barba, Sfumatura, Bimbo, Styling",
+  servicesList: ["Taglio uomo", "Barba", "Taglio + barba", "Sfumatura", "Bimbo", "Styling"],
 
-  city: "Teramo (TE)",
+  // ✅ contatti (CAMBIA QUESTI)
+  city: "Castelnuovo Vomano (TE)",
   phone: "333 123 4567",
 
+  // ✅ orari (CAMBIA QUESTI)
   hoursTitle: "Orari di apertura",
-  hoursLines: ["Lunedì–Sabato: 08:00–13:00 e 15:00–19:00", "Domenica: chiuso"],
+  hoursLines: ["Lunedì–Sabato: 08:30–12:30 e 15:00–20:00", "Domenica: chiuso"],
 
+  // ✅ bottoni
   cta: {
     book: "Prenota ora",
     cancel: "Annulla",
@@ -102,39 +107,41 @@ const BUSINESS: BusinessConfig = {
   },
 
   helpCardTitle: "Assistenza",
-  helpCardSubtitle:
-    "Domande su servizi, orari o come preparare il cane? Scrivi qui. Per prenotare usa sempre “Prenota adesso”.",
+  helpCardSubtitle: "Domande su tagli, orari o servizi? Scrivi qui. Per prenotare usa sempre “Prenota adesso”.",
 
   footerText: "Powered by GalaxBot AI",
 
+  // ✅ messaggi WhatsApp (usati nel pannello)
   whatsappTemplates: {
     genericHello: "Ciao {name}!",
-    confirmBooking:
-      "Ciao {name}! ✅ Prenotazione CONFERMATA per {date} alle {time} ({service}). A presto! 🐾",
+    confirmBooking: "Ciao {name}! ✅ Prenotazione CONFERMATA per {date} alle {time} ({service}). A presto! 💈",
     cancelBooking:
-      "Ciao {name}. ❌ La prenotazione {service} del {date} alle {time} è ANNULLATA. Se vuoi riprenotare, scrivimi qui. 🐾",
+      "Ciao {name}. ❌ La prenotazione {service} del {date} alle {time} è ANNULLATA. Se vuoi riprenotare, scrivimi qui. 💈",
   },
 
+  // ✅ PWA (icona su Home)
   pwa: {
-    name: "4 Zampe",
-    shortName: "4 Zampe",
-    description: "Prenotazioni e info 24/7",
-    themeColor: "#0F766E",
+    name: "Fashion Style · Prenotazioni",
+    shortName: "FashionStyle",
+    description: "Prenota e gestisci appuntamenti",
+    themeColor: "#0A0F18",
   },
 
+  // ✅ funzioni attive
   features: {
     enableBookings: true,
     enableOrders: false,
     enableOpenAIChat: true,
   },
 
-  // ✅ tema “pet grooming”: fresco, chiaro e leggibile
+  // ✅ tema “barbiere” (puoi cambiare i colori se vuoi)
   theme: {
-    primary: "#0F766E", // teal profondo
-    danger: "#F97316", // arancio (annulla)
-    accent: "#2563EB", // blu pulito (dettagli)
+    primary: "#2563EB", // blu
+    danger: "#EF4444", // rosso (annulla)
+    accent: "#F59E0B", // oro (dettagli)
   },
 
+  // facoltativi
   address: "",
   whatsappPhone: "",
   mapsUrl: "",

@@ -32,6 +32,7 @@ function isTime(s: string) {
   return /^\d{2}:\d{2}$/.test(String(s || "").trim());
 }
 function normalizePhone(s: string) {
+  // tiene numeri e "+"; trasforma 00 in +
   return String(s || "").replace(/[^\d+]/g, "").replace(/^00/, "+");
 }
 
@@ -93,26 +94,25 @@ export async function POST(req: Request) {
     if (!action) return jsonNoStore({ ok: false, error: "Azione mancante." }, { status: 400 });
 
     // =========================
-    // CREATE BOOKING (richiesta)
+    // CREATE BOOKING (BARBIERE)
     // =========================
     if (action === "create_booking") {
-      const ownerName = String(body?.ownerName || body?.name || "").trim();
-      const dogName = String(body?.dogName || "").trim();
+      const name = String(body?.name || "").trim();
       const phone = normalizePhone(String(body?.phone || "").trim());
       const service = String(body?.service || "").trim();
+
       const dateRaw = String(body?.date || "").trim();
       const date = normalizeDateToIso(dateRaw); // YYYY-MM-DD
+
       const time = String(body?.time || "").trim(); // HH:mm
       const notes = String(body?.notes || "").trim();
-      const taglia = String(body?.taglia || "").trim();
-      const pelo = String(body?.pelo || "").trim();
       const canale = String(body?.canale || "WEB").trim(); // WEB / BOT
 
-      if (!ownerName || !dogName || !phone || !service || !taglia || !pelo || !isIsoDate(date) || !isTime(time)) {
+      if (!name || !phone || !service || !isIsoDate(date) || !isTime(time)) {
         return jsonNoStore(
           {
             ok: false,
-            error: "Campi obbligatori: ownerName, dogName, phone, taglia, pelo, service, date(YYYY-MM-DD o DD/MM/YYYY), time(HH:mm).",
+            error: "Campi obbligatori: name, phone, service, date(YYYY-MM-DD o DD/MM/YYYY), time(HH:mm).",
           },
           { status: 400 }
         );
@@ -120,12 +120,8 @@ export async function POST(req: Request) {
 
       const { data, httpStatus } = await callScript({
         action: "create_booking",
-        ownerName,
-        name: ownerName, // compatibilità
-        dogName,
+        name,
         phone,
-        taglia,
-        pelo,
         service,
         date,
         time,
@@ -134,36 +130,38 @@ export async function POST(req: Request) {
       });
 
       if (!data?.ok) {
-        const status = Number(httpStatus) || (data?.conflict ? 409 : 500);
+        const status = Number(httpStatus) || ((data as any)?.conflict ? 409 : 500);
         return jsonNoStore(
           {
             ok: false,
             error: data?.error || "Errore durante la prenotazione.",
-            conflict: Boolean(data?.conflict),
+            conflict: Boolean((data as any)?.conflict),
             details: data?.details,
           },
           { status }
         );
       }
 
-      return jsonNoStore({ ok: true, message: data?.message || "Richiesta registrata.", id: data?.id }, { status: 200 });
+      return jsonNoStore(
+        { ok: true, message: data?.message || "Prenotazione registrata.", id: (data as any)?.id },
+        { status: 200 }
+      );
     }
 
     // =========================
-    // CANCEL BOOKING (obbligatorio: cane + padrone)
+    // CANCEL BOOKING (BARBIERE)
     // =========================
     if (action === "cancel_booking") {
       const phone = normalizePhone(String(body?.phone || "").trim());
+
       const dateRaw = String(body?.date || "").trim();
       const date = normalizeDateToIso(dateRaw);
+
       const time = String(body?.time || "").trim(); // HH:mm
 
-      const ownerName = String(body?.ownerName || body?.name || "").trim();
-      const dogName = String(body?.dogName || "").trim();
-
-      if (!ownerName || !dogName || !phone || !isIsoDate(date) || !isTime(time)) {
+      if (!phone || !isIsoDate(date) || !isTime(time)) {
         return jsonNoStore(
-          { ok: false, error: "Per annullare servono: nome padrone, nome cane, telefono, data(YYYY-MM-DD o DD/MM/YYYY) e ora(HH:mm)." },
+          { ok: false, error: "Per annullare servono: phone, date(YYYY-MM-DD o DD/MM/YYYY) e time(HH:mm)." },
           { status: 400 }
         );
       }
@@ -173,8 +171,6 @@ export async function POST(req: Request) {
         phone,
         date,
         time,
-        ownerName,
-        dogName,
       });
 
       if (!data?.ok) {

@@ -54,7 +54,7 @@ Regole IMPORTANTI:
 - NON prendere prenotazioni in chat e NON inventare disponibilità.
 - Se l’utente chiede di prenotare, rispondi: "${bookingGuide}"
 - Se l’utente chiede di annullare, rispondi: "${cancelGuide}"
-- Se chiedono prezzo/durata e non ci sono info certe, spiega che dipende (taglia, tipo pelo, condizioni) e proponi di indicare: taglia, pelo corto/lungo, eventuali nodi, e servizio richiesto.
+- Se chiedono prezzo/durata e non ci sono info certe, spiega che dipende da lunghezza capelli, tipo di taglio/sfumatura, barba, e chiedi: servizio + lunghezza + (eventuale) barba.
 - Stile: amichevole, professionale, italiano, massimo 6-8 righe.
 
 Dati attività:
@@ -95,12 +95,12 @@ function localFallbackAnswer(userText: string) {
       : `Dimmi il giorno che ti interessa e ti confermo gli orari.`;
   }
   if (t.includes("prezzo") || t.includes("costa") || t.includes("quanto")) {
-    return `I prezzi dipendono dal servizio e dal caso (taglia, tipo pelo, eventuali nodi). Dimmi: servizio + taglia + pelo corto/lungo e ti orientiamo.`;
+    return `Il prezzo dipende dal servizio e da dettagli come lunghezza capelli, tipo di taglio/sfumatura e barba. Dimmi: servizio + lunghezza + (eventuale) barba e ti orientiamo.`;
   }
-  if (t.includes("servizi") || t.includes("fate") || t.includes("bagno") || t.includes("taglio")) {
+  if (t.includes("servizi") || t.includes("fate") || t.includes("taglio") || t.includes("barba") || t.includes("sfum")) {
     return servicesShort
-      ? `Servizi principali: ${servicesShort}. Se mi dici che cane hai (taglia/pelo), ti consiglio il trattamento giusto.`
-      : `Dimmi che servizio ti serve (bagno, taglio, unghie…) e che cane hai (taglia/pelo) e ti aiuto.`;
+      ? `Servizi principali: ${servicesShort}. Dimmi cosa vuoi fare (taglio, barba, sfumatura…) e ti dico come prenotare.`
+      : `Dimmi che servizio ti serve (taglio, barba, taglio+barba, sfumatura…) e ti aiuto.`;
   }
   if (t.includes("telefono") || t.includes("contatt")) {
     return phone ? `Puoi contattarci al: ${phone}` : `Dimmi come preferisci essere contattato e ti dico la soluzione migliore.`;

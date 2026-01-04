@@ -34,8 +34,16 @@ function hexToRgb(hex?: string) {
 }
 function rgba(hex: string, a: number) {
   const c = hexToRgb(hex);
-  if (!c) return `rgba(212,175,55,${a})`;
+  if (!c) return `rgba(245,158,11,${a})`;
   return `rgba(${c.r},${c.g},${c.b},${a})`;
+}
+
+function normalizePhone(raw: string) {
+  // tieni numeri e +, e converti 00 -> +
+  return String(raw || "")
+    .trim()
+    .replace(/[^\d+]/g, "")
+    .replace(/^00/, "+");
 }
 
 export default function FastBookingForm() {
@@ -50,19 +58,15 @@ export default function FastBookingForm() {
   const SERVICES: string[] =
     Array.isArray(biz?.servicesList) && biz.servicesList.length > 0
       ? biz.servicesList
-      : ["Bagno", "Tosatura", "Taglio + bagno", "Unghie", "Pulizia orecchie"];
+      : ["Taglio", "Taglio + Barba", "Barba", "Shampoo", "Rasatura"];
 
-  // Palette (non cambiamo la pagina, solo leggibilità del form)
-  const gold = "#D4AF37";
-  const danger = biz?.theme?.danger || "#EF4444";
-  const accent = biz?.theme?.accent || "#38BDF8";
+  const primary = biz?.theme?.primary || "#2563EB";
+  const accent = biz?.theme?.accent || "#EF4444";
+  const danger = biz?.theme?.danger || "#F59E0B";
 
   const todayISO = useMemo(() => toISODate(new Date()), []);
-  const [dogName, setDogName] = useState("");
-  const [ownerName, setOwnerName] = useState("");
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [taglia, setTaglia] = useState<"Piccola" | "Media" | "Grande">("Media");
-  const [pelo, setPelo] = useState<"Corto" | "Medio" | "Lungo">("Corto");
 
   const [service, setService] = useState(SERVICES[0] || "");
   const [dateISO, setDateISO] = useState(todayISO);
@@ -78,7 +82,7 @@ export default function FastBookingForm() {
   const [resultType, setResultType] = useState<"ok" | "warn" | "err" | "">("");
 
   async function fetchAvailability(date: string) {
-    // prova POST, se 405 ripiega su GET (così funziona sia con route POST che GET)
+    // prova POST, se fallisce ripiega su GET
     try {
       const res = await fetch("/api/availability", {
         method: "POST",
@@ -90,7 +94,7 @@ export default function FastBookingForm() {
 
       const data = (await res.json().catch(() => null)) as AvailabilityResponse | null;
       return { res, data };
-    } catch (e: any) {
+    } catch {
       const res = await fetch(`/api/availability?date=${encodeURIComponent(date)}`, { method: "GET" });
       const data = (await res.json().catch(() => null)) as AvailabilityResponse | null;
       return { res, data };
@@ -142,13 +146,12 @@ export default function FastBookingForm() {
     setResultMsg("");
     setResultType("");
 
-    const dog = dogName.trim();
-    const owner = ownerName.trim();
-    const p = phone.trim();
+    const n = name.trim();
+    const p = normalizePhone(phone);
 
-    if (!dog || !owner || !p || !taglia || !pelo || !service || !dateISO || !time) {
+    if (!n || !p || !service || !dateISO || !time) {
       setResultType("warn");
-      setResultMsg("Compila tutti i campi obbligatori (cane, padrone, telefono, taglia, pelo, servizio, data, ora).");
+      setResultMsg("Compila tutti i campi obbligatori (nome, telefono, servizio, data, ora).");
       return;
     }
 
@@ -159,16 +162,13 @@ export default function FastBookingForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "create_booking",
-          ownerName: owner,
-          name: owner, // compatibilità
+          name: n,
           phone: p,
-          dogName: dog,
-          taglia,
-          pelo,
           service,
           date: dateISO,
           time,
           notes: notes.trim(),
+          canale: "WEB",
         }),
       });
 
@@ -188,14 +188,11 @@ export default function FastBookingForm() {
       }
 
       setResultType("ok");
-      setResultMsg("✅ Prenotazione inviata! Ti aspettiamo 🐾");
+      setResultMsg("✅ Prenotazione inviata! Se serve ti contattiamo per conferma.");
 
-      setDogName("");
-      setOwnerName("");
+      setName("");
       setPhone("");
       setNotes("");
-      setTaglia("Media");
-      setPelo("Corto");
 
       await loadAvailability(dateISO);
     } catch {
@@ -226,7 +223,6 @@ export default function FastBookingForm() {
     grid: { display: "grid", gap: 12 },
     label: { fontSize: 13, fontWeight: 950, color: "rgba(255,255,255,0.92)" },
 
-    // più leggibile (sfondo chiaro ma non bianco)
     input: {
       width: "100%",
       padding: "12px 12px",
@@ -248,14 +244,13 @@ export default function FastBookingForm() {
       gap: 8,
       padding: "8px 10px",
       borderRadius: 999,
-      border: `1px solid ${rgba(accent, 0.30)}`,
-      background: `${rgba(accent, 0.12)}`,
+      border: `1px solid ${rgba(primary, 0.26)}`,
+      background: `${rgba(primary, 0.12)}`,
       fontWeight: 900,
       fontSize: 12,
       color: "rgba(255,255,255,0.92)",
     },
 
-    // ✅ bottone ORO
     btn: {
       width: "100%",
       border: "1px solid rgba(255,255,255,0.16)",
@@ -263,9 +258,9 @@ export default function FastBookingForm() {
       padding: "14px 14px",
       fontWeight: 950,
       cursor: "pointer",
-      color: "#0A0F1A",
-      background: `linear-gradient(90deg, ${rgba(gold, 0.98)} 0%, ${rgba(gold, 0.72)} 60%, rgba(255,255,255,0.14) 140%)`,
-      boxShadow: `0 18px 46px ${rgba(gold, 0.18)}`,
+      color: "rgba(10,14,24,0.98)",
+      background: `linear-gradient(90deg, ${rgba(primary, 0.95)} 0%, ${rgba(accent, 0.88)} 60%, ${rgba(danger, 0.75)} 115%)`,
+      boxShadow: `0 18px 46px rgba(0,0,0,0.22)`,
       letterSpacing: 0.2,
     },
     btnDisabled: {
@@ -298,7 +293,7 @@ export default function FastBookingForm() {
       marginTop: 10,
       padding: "10px 12px",
       borderRadius: 12,
-      background: `${rgba(danger, 0.18)}`,
+      background: `${rgba(accent, 0.18)}`,
       border: "1px solid rgba(255,255,255,0.16)",
       color: "rgba(255,255,255,0.94)",
       fontSize: 13,
@@ -308,36 +303,27 @@ export default function FastBookingForm() {
 
   return (
     <section style={styles.card}>
-      <h2 style={styles.title}>Prenota adesso 🐾</h2>
-      <div style={styles.subtitle}>Scegli una data: ti mostriamo solo gli orari disponibili. Se trovi pieno, cambia data.</div>
+      <h2 style={styles.title}>Prenota adesso ✂️</h2>
+      <div style={styles.subtitle}>
+        Scegli una data: ti mostriamo solo gli orari disponibili. Se trovi pieno, cambia data.
+      </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-        <div style={styles.chip}>📍 {biz?.city ?? "Teramo (TE)"}</div>
-        <div style={styles.chip}>🧼 Toelettatura</div>
+        <div style={styles.chip}>📍 {biz?.city ?? "—"}</div>
+        <div style={styles.chip}>✂️ {biz?.headline ?? "Barber Shop"}</div>
       </div>
 
       <form onSubmit={onSubmit} style={styles.grid}>
         <div>
-          <div style={styles.label}>Nome del cane *</div>
+          <div style={styles.label}>Nome e cognome *</div>
           <input
             style={styles.input}
-            placeholder="Es. Luna"
-            value={dogName}
-            onChange={(e) => setDogName(e.target.value)}
-            autoComplete="off"
-          />
-          <div style={styles.helper}>Serve per riconoscere subito l’appuntamento.</div>
-        </div>
-
-        <div>
-          <div style={styles.label}>Nome del padrone *</div>
-          <input
-            style={styles.input}
-            placeholder="Es. Marco"
-            value={ownerName}
-            onChange={(e) => setOwnerName(e.target.value)}
+            placeholder="Es. Marco Rossi"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             autoComplete="name"
           />
+          <div style={styles.helper}>Serve per riconoscere subito la prenotazione.</div>
         </div>
 
         <div>
@@ -350,26 +336,7 @@ export default function FastBookingForm() {
             autoComplete="tel"
             inputMode="tel"
           />
-        </div>
-
-        <div className="mm-row2" style={styles.row2}>
-          <div>
-            <div style={styles.label}>Taglia *</div>
-            <select style={styles.input} value={taglia} onChange={(e) => setTaglia(e.target.value as any)}>
-              <option value="Piccola">Piccola</option>
-              <option value="Media">Media</option>
-              <option value="Grande">Grande</option>
-            </select>
-          </div>
-
-          <div>
-            <div style={styles.label}>Pelo *</div>
-            <select style={styles.input} value={pelo} onChange={(e) => setPelo(e.target.value as any)}>
-              <option value="Corto">Corto</option>
-              <option value="Medio">Medio</option>
-              <option value="Lungo">Lungo</option>
-            </select>
-          </div>
+          <div style={styles.helper}>Usa lo stesso numero se vuoi annullare/modificare.</div>
         </div>
 
         <div className="mm-row2" style={styles.row2}>
@@ -429,20 +396,16 @@ export default function FastBookingForm() {
             <div style={styles.label}>Note (facoltative)</div>
             <input
               style={styles.input}
-              placeholder="Es. nodi, sensibile al phon, ecc."
+              placeholder="Es. taglio corto, barba, ecc."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
-            <div style={styles.helper}>Esempio: “nodi”, “sensibile al phon”, “taglio corto”.</div>
+            <div style={styles.helper}>Esempio: “barba + rifinitura”, “sfumatura alta”.</div>
           </div>
         </div>
 
-        <button
-          type="submit"
-          style={{ ...styles.btn, ...(submitting ? styles.btnDisabled : {}) }}
-          disabled={submitting}
-        >
-          {submitting ? "Invio in corso…" : "Conferma prenotazione 🐾"}
+        <button type="submit" style={{ ...styles.btn, ...(submitting ? styles.btnDisabled : {}) }} disabled={submitting}>
+          {submitting ? "Invio in corso…" : "Conferma prenotazione ✂️"}
         </button>
 
         {resultMsg ? (

@@ -91,6 +91,13 @@
   backdrop-filter: blur(10px);
 }
 
+/* fallback se backdrop-filter non c’è */
+@supports not ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
+  .card {
+    background: rgba(255, 255, 255, 0.94);
+  }
+}
+
 .h2 {
   margin: 0 0 6px;
   font-size: 16px;
@@ -131,11 +138,19 @@ select.input {
   width: 100%;
   border-radius: 12px;
   padding: 10px 12px;
-  font-size: 14px;
+
+  /* ✅ evita zoom iOS */
+  font-size: 16px;
+
   color: #0f172a;
   background: rgba(15, 23, 42, 0.03);
   border: 1px solid rgba(15, 23, 42, 0.14);
   outline: none;
+}
+
+select.input {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .input::placeholder,
@@ -176,9 +191,12 @@ select.input:focus {
   border: 1px solid rgba(37, 99, 235, 0.22);
   background: rgba(37, 99, 235, 0.06);
   color: rgba(15, 23, 42, 0.92);
-  padding: 8px 10px;
+
+  /* ✅ tap più facile */
+  padding: 9px 12px;
+
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -206,6 +224,10 @@ select.input:focus {
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.90), rgba(29, 78, 216, 0.92));
   color: #ffffff;
   border-radius: 12px;
+
+  /* ✅ touch target */
+  min-height: 44px;
+
   padding: 10px 12px;
   font-size: 14px;
   cursor: pointer;
@@ -227,6 +249,7 @@ select.input:focus {
   background: rgba(15, 23, 42, 0.04);
   color: rgba(15, 23, 42, 0.92);
   border-radius: 12px;
+  min-height: 44px;
   padding: 10px 12px;
   font-size: 14px;
   cursor: pointer;
@@ -238,6 +261,7 @@ select.input:focus {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.92), rgba(220, 38, 38, 0.94));
   color: #ffffff;
   border-radius: 12px;
+  min-height: 44px;
   padding: 10px 12px;
   font-size: 14px;
   cursor: pointer;
@@ -268,6 +292,17 @@ select.input:focus {
   overflow: auto;
   display: grid;
   gap: 8px;
+}
+
+.chatMsgs::-webkit-scrollbar {
+  width: 10px;
+}
+.chatMsgs::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.14);
+  border-radius: 999px;
+}
+.chatMsgs::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .chatMsg {
