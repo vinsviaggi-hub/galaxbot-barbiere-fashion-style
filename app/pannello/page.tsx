@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./pannello.module.css";
 import { getBusinessConfig } from "@/app/config/business";
@@ -110,6 +110,7 @@ function buildCancelMsg(r: AdminRow) {
 
 function statusPillStyle(st: string): React.CSSProperties {
   const s = normStatus(st);
+
   if (s === "CONFERMATA") {
     return {
       background: "rgba(34, 197, 94, 0.10)",
@@ -124,9 +125,11 @@ function statusPillStyle(st: string): React.CSSProperties {
       color: "rgba(15, 23, 42, 0.92)",
     };
   }
+
+  // Richiesta: pill neutra (non giallo pesante)
   return {
-    background: "rgba(245, 158, 11, 0.10)",
-    border: "1px solid rgba(245, 158, 11, 0.26)",
+    background: "rgba(15, 23, 42, 0.06)",
+    border: "1px solid rgba(15, 23, 42, 0.14)",
     color: "rgba(15, 23, 42, 0.92)",
   };
 }
@@ -134,6 +137,50 @@ function statusPillStyle(st: string): React.CSSProperties {
 function isMobileDevice() {
   if (typeof navigator === "undefined") return false;
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+/** 🔊 Beep senza file audio in public */
+function playBeep(durationMs = 220) {
+  try {
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    gain.gain.value = 0.08;
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+
+    window.setTimeout(() => {
+      try {
+        osc.stop();
+        osc.disconnect();
+        gain.disconnect();
+        ctx.close();
+      } catch {}
+    }, durationMs);
+  } catch {}
+}
+
+function speak(text: string) {
+  try {
+    if (typeof window === "undefined") return;
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "it-IT";
+    u.rate = 1.02;
+    u.pitch = 1.0;
+    synth.cancel();
+    synth.speak(u);
+  } catch {}
 }
 
 export default function PannelloAdminPage() {
@@ -165,7 +212,6 @@ export default function PannelloAdminPage() {
 
   const [dayMode, setDayMode] = useState<"TUTTO" | "OGGI" | "DOMANI" | "7" | "DATA">("TUTTO");
   const [pickDate, setPickDate] = useState<string>(todayISO());
-
   const [statusFilter, setStatusFilter] = useState<"TUTTE" | "RICHIESTA" | "CONFERMATA" | "ANNULLATA">("TUTTE");
 
   // Disponibilità
@@ -173,6 +219,38 @@ export default function PannelloAdminPage() {
   const [availLoading, setAvailLoading] = useState(false);
   const [availSlots, setAvailSlots] = useState<string[]>([]);
   const [availMsg, setAvailMsg] = useState<string>("");
+
+  // 🔔 Suono/Voce
+  const [soundOn, setSoundOn] = useState(true);
+  const [voiceOn, setVoiceOn] = useState(false);
+
+  // evidenziazione nuove card
+  const [highlightIds, setHighlightIds] = useState<Record<string, number>>({}); // id -> expireTs
+
+  // per capire cosa è “nuovo”
+  const hasLoadedOnceRef = useRef(false);
+  const prevIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("gb_soundOn");
+      const v = localStorage.getItem("gb_voiceOn");
+      if (s !== null) setSoundOn(s === "1");
+      if (v !== null) setVoiceOn(v === "1");
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("gb_soundOn", soundOn ? "1" : "0");
+    } catch {}
+  }, [soundOn]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("gb_voiceOn", voiceOn ? "1" : "0");
+    } catch {}
+  }, [voiceOn]);
 
   const counts = useMemo(() => {
     const c = { RICHIESTA: 0, CONFERMATA: 0, ANNULLATA: 0 };
@@ -240,9 +318,46 @@ export default function PannelloAdminPage() {
     }
   };
 
-  const loadRows = async () => {
+  const markHighlights = (newRows: AdminRow[]) => {
+    const expire = Date.now() + 90_000;
+    setHighlightIds((prev) => {
+      const next = { ...prev };
+      newRows.forEach((r) => (next[r.id] = expire));
+      return next;
+    });
+
+    window.setTimeout(() => {
+      setHighlightIds((prev) => {
+        const now = Date.now();
+        const next: Record<string, number> = {};
+        Object.entries(prev).forEach(([id, ts]) => {
+          if (ts > now) next[id] = ts;
+        });
+        return next;
+      });
+    }, 95_000);
+  };
+
+  const triggerAlertsForNew = (newRows: AdminRow[]) => {
+    if (newRows.length === 0) return;
+
+    if (soundOn) playBeep();
+    if (voiceOn) {
+      const r = newRows[0];
+      const nome = (r.nome || "Cliente").toString().trim();
+      const data = toITDate(r.dataISO);
+      const ora = r.ora || "";
+      speak(`Nuova prenotazione. ${nome}. ${data} ${ora}`.trim());
+    }
+
+    showToast("ok", `🔔 Nuova prenotazione: ${newRows.length}`);
+    markHighlights(newRows);
+  };
+
+  const loadRows = async (opts?: { silent?: boolean }) => {
     setLoadingRows(true);
     setRowsError(null);
+
     try {
       const res = await fetch("/api/admin/bookings?limit=800", { credentials: "include" });
       const data: ListResponse = await safeJson(res);
@@ -270,7 +385,22 @@ export default function PannelloAdminPage() {
         }))
         .filter((x: AdminRow) => x.id);
 
+      const prev = prevIdsRef.current;
+      const nowIds = new Set(normalized.map((r) => r.id));
+
+      if (!hasLoadedOnceRef.current) {
+        hasLoadedOnceRef.current = true;
+        prevIdsRef.current = nowIds;
+        setRows(normalized);
+        return;
+      }
+
+      const newOnes = normalized.filter((r) => !prev.has(r.id));
+
+      prevIdsRef.current = nowIds;
       setRows(normalized);
+
+      if (!opts?.silent) triggerAlertsForNew(newOnes);
     } catch {
       setRowsError("Errore rete nel caricamento prenotazioni.");
       setRows([]);
@@ -317,7 +447,6 @@ export default function PannelloAdminPage() {
     router.refresh();
   };
 
-  // ✅ WhatsApp “no pagina bianca” su iPhone
   function openExternalUrl(url: string) {
     if (!url) return;
     if (isMobileDevice()) window.location.href = url;
@@ -333,10 +462,20 @@ export default function PannelloAdminPage() {
     openExternalUrl(waLink(p, message));
   }
 
+  const clearHighlightForId = (id: string) => {
+    setHighlightIds((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
   const setStatus = async (id: string, status: "RICHIESTA" | "CONFERMATA" | "ANNULLATA") => {
     const next = status;
 
-    // update ottimistico
+    if (next !== "RICHIESTA") clearHighlightForId(id);
+
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, stato: next } : r)));
 
     try {
@@ -351,16 +490,16 @@ export default function PannelloAdminPage() {
       const data: UpdateResponse = await safeJson(res);
       if (!(data as any)?.ok) {
         showToast("err", (data as any)?.error || "Aggiornamento stato fallito.");
-        await loadRows();
+        await loadRows({ silent: true });
         return;
       }
 
       showToast("ok", `Stato aggiornato: ${next}`);
-      await loadRows();
+      await loadRows({ silent: true });
       await loadAvailability(availDate);
     } catch {
       showToast("err", "Errore rete: stato non aggiornato.");
-      await loadRows();
+      await loadRows({ silent: true });
     }
   };
 
@@ -395,7 +534,7 @@ export default function PannelloAdminPage() {
       return;
     }
     if (loggedIn) {
-      void loadRows();
+      void loadRows({ silent: true });
       void loadAvailability(availDate);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -409,7 +548,7 @@ export default function PannelloAdminPage() {
     }, 60_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedIn]);
+  }, [loggedIn, soundOn, voiceOn]);
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -417,7 +556,6 @@ export default function PannelloAdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availDate, loggedIn]);
 
-  // loading “pulito”
   if (checking) {
     return (
       <div className={styles.page}>
@@ -434,7 +572,6 @@ export default function PannelloAdminPage() {
     );
   }
 
-  // se non loggato → redirect già fatto
   if (!loggedIn) return null;
 
   return (
@@ -477,10 +614,41 @@ export default function PannelloAdminPage() {
                   <div className={styles.chip}>✅ Confermate: {counts.CONFERMATA}</div>
                   <div className={styles.chip}>❌ Annullate: {counts.ANNULLATA}</div>
                 </div>
+
+                {/* 🔔 Toggle suono/voce (Test rimosso) */}
+                <div className={styles.chipsRow} style={{ marginTop: 10, gap: 10 }}>
+                  <button
+                    className={styles.miniBtn}
+                    onClick={() => setSoundOn((v) => !v)}
+                    title="Attiva/Disattiva suono"
+                    style={{
+                      border: soundOn ? "1px solid rgba(34,197,94,0.35)" : "1px solid rgba(239,68,68,0.30)",
+                      background: soundOn ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)",
+                      color: "rgba(15,23,42,0.92)",
+                      fontWeight: 950,
+                    }}
+                  >
+                    🔊 Suono: {soundOn ? "ON" : "OFF"}
+                  </button>
+
+                  <button
+                    className={styles.miniBtn}
+                    onClick={() => setVoiceOn((v) => !v)}
+                    title="Attiva/Disattiva voce"
+                    style={{
+                      border: voiceOn ? "1px solid rgba(34,197,94,0.35)" : "1px solid rgba(239,68,68,0.30)",
+                      background: voiceOn ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)",
+                      color: "rgba(15,23,42,0.92)",
+                      fontWeight: 950,
+                    }}
+                  >
+                    🗣️ Voce: {voiceOn ? "ON" : "OFF"}
+                  </button>
+                </div>
               </div>
 
               <div className={styles.btnRow}>
-                <button className={styles.btnPrimary} onClick={loadRows} disabled={loadingRows}>
+                <button className={styles.btnPrimary} onClick={() => loadRows()} disabled={loadingRows} title="Aggiorna subito">
                   {loadingRows ? "Aggiorno…" : "Aggiorna"}
                 </button>
                 <button className={styles.btnDanger} onClick={logout}>
@@ -599,12 +767,49 @@ export default function PannelloAdminPage() {
                   const callHref = tel ? `tel:${safeTel(tel)}` : "#";
                   const telOk = Boolean(safeTel(tel));
 
+                  const isHighlighted = Boolean(highlightIds[r.id] && highlightIds[r.id] > Date.now());
+                  const isRequest = st === "RICHIESTA";
+                  const glowActive = isRequest && isHighlighted;
+
+                  // ✅ BORDO COMPLETO (colorato per stato) per separare bene le card
+                  let borderCol = "rgba(15, 23, 42, 0.14)";
+                  if (st === "RICHIESTA") borderCol = "rgba(245, 158, 11, 0.35)";
+                  if (st === "CONFERMATA") borderCol = "rgba(34, 197, 94, 0.30)";
+                  if (st === "ANNULLATA") borderCol = "rgba(239, 68, 68, 0.32)";
+
                   return (
-                    <div key={r.id} className={styles.card}>
+                    <div
+                      key={r.id}
+                      className={styles.card}
+                      style={{
+                        // ✅ bordo completo
+                        border: `2px solid ${borderCol}`,
+                        // mantiene l’effetto “nuova richiesta” senza rompere altro
+                        outline: glowActive ? "3px solid rgba(245,158,11,0.55)" : "none",
+                        boxShadow: glowActive
+                          ? "0 0 0 6px rgba(245,158,11,0.10), 0 18px 55px rgba(0,0,0,0.18)"
+                          : isRequest
+                          ? "0 0 0 4px rgba(245,158,11,0.06)"
+                          : undefined,
+                        transform: glowActive ? "translateY(-1px)" : undefined,
+                        transition: "outline 220ms ease, box-shadow 220ms ease, transform 220ms ease, border 220ms ease",
+                      }}
+                    >
                       <div className={styles.leftBar} />
 
                       <div className={styles.cardTop}>
-                        <span className={styles.nameBadge}>{nome}</span>
+                        <span
+                          className={styles.nameBadge}
+                          style={{
+                            // ✅ oro più scuro (si legge meglio)
+                            color: "rgba(145, 100, 0, 0.98)",
+                            textShadow: "0 1px 0 rgba(255,255,255,0.55)",
+                            fontWeight: 950,
+                          }}
+                        >
+                          {nome} {glowActive ? "✨" : ""}
+                        </span>
+
                         <span className={styles.rightStatus} style={statusPillStyle(st)}>
                           {st}
                         </span>
