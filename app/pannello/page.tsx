@@ -108,6 +108,7 @@ function buildCancelMsg(r: AdminRow) {
   return `Ciao${nome ? " " + nome : ""}. ❌ Il tuo appuntamento è ANNULLATO (${serv}) del ${data} alle ${ora}. Se vuoi riprenotare, scrivimi qui.`;
 }
 
+// ✅ pill status: richiesta NON gialla (più pulita)
 function statusPillStyle(st: string): React.CSSProperties {
   const s = normStatus(st);
 
@@ -126,12 +127,19 @@ function statusPillStyle(st: string): React.CSSProperties {
     };
   }
 
-  // Richiesta: pill neutra (non giallo pesante)
+  // RICHIESTA: neutra (il "giallo" lo fa la card glow, non la pill)
   return {
-    background: "rgba(15, 23, 42, 0.06)",
-    border: "1px solid rgba(15, 23, 42, 0.14)",
+    background: "rgba(148, 163, 184, 0.14)",
+    border: "1px solid rgba(148, 163, 184, 0.32)",
     color: "rgba(15, 23, 42, 0.92)",
   };
+}
+
+function cardBorderColor(st: string) {
+  const s = normStatus(st);
+  if (s === "CONFERMATA") return "rgba(34, 197, 94, 0.35)";
+  if (s === "ANNULLATA") return "rgba(239, 68, 68, 0.38)";
+  return "rgba(245, 158, 11, 0.35)"; // richiesta
 }
 
 function isMobileDevice() {
@@ -150,8 +158,8 @@ function playBeep(durationMs = 220) {
     const gain = ctx.createGain();
 
     osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.value = 0.08;
+    osc.frequency.value = 880; // tono
+    gain.gain.value = 0.08; // volume
 
     osc.connect(gain);
     gain.connect(ctx.destination);
@@ -169,17 +177,35 @@ function playBeep(durationMs = 220) {
   } catch {}
 }
 
+/**
+ * 🗣️ Voce: più lenta + pause (spezzando in frasi)
+ * Nota: su browser diversi la velocità cambia, ma così è molto più naturale.
+ */
 function speak(text: string) {
   try {
     if (typeof window === "undefined") return;
     const synth = window.speechSynthesis;
     if (!synth) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "it-IT";
-    u.rate = 1.02;
-    u.pitch = 1.0;
-    synth.cancel();
-    synth.speak(u);
+
+    const raw = String(text || "").replace(/\s+/g, " ").trim();
+    if (!raw) return;
+
+    // Spezza per pause naturali
+    const parts = raw
+      .split(/(?<=[.!?])\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    synth.cancel(); // evita sovrapposizioni
+
+    for (const p of parts) {
+      const u = new SpeechSynthesisUtterance(p);
+      u.lang = "it-IT";
+      u.rate = 0.92; // 🔥 più lento (prova 0.88–0.95 se vuoi)
+      u.pitch = 1.0;
+      u.volume = 1.0;
+      synth.speak(u); // va in coda automaticamente
+    }
   } catch {}
 }
 
@@ -224,7 +250,7 @@ export default function PannelloAdminPage() {
   const [soundOn, setSoundOn] = useState(true);
   const [voiceOn, setVoiceOn] = useState(false);
 
-  // evidenziazione nuove card
+  // evidenziazione nuove card (arrivate ora)
   const [highlightIds, setHighlightIds] = useState<Record<string, number>>({}); // id -> expireTs
 
   // per capire cosa è “nuovo”
@@ -232,6 +258,7 @@ export default function PannelloAdminPage() {
   const prevIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    // carico preferenze
     try {
       const s = localStorage.getItem("gb_soundOn");
       const v = localStorage.getItem("gb_voiceOn");
@@ -319,6 +346,7 @@ export default function PannelloAdminPage() {
   };
 
   const markHighlights = (newRows: AdminRow[]) => {
+    // evidenzio per 90s
     const expire = Date.now() + 90_000;
     setHighlightIds((prev) => {
       const next = { ...prev };
@@ -326,6 +354,7 @@ export default function PannelloAdminPage() {
       return next;
     });
 
+    // cleanup automatico
     window.setTimeout(() => {
       setHighlightIds((prev) => {
         const now = Date.now();
@@ -342,12 +371,14 @@ export default function PannelloAdminPage() {
     if (newRows.length === 0) return;
 
     if (soundOn) playBeep();
+
     if (voiceOn) {
       const r = newRows[0];
       const nome = (r.nome || "Cliente").toString().trim();
       const data = toITDate(r.dataISO);
       const ora = r.ora || "";
-      speak(`Nuova prenotazione. ${nome}. ${data} ${ora}`.trim());
+      // frasi corte = pause naturali
+      speak(`Nuova prenotazione. ${nome}. Data ${data}. Ore ${ora}.`);
     }
 
     showToast("ok", `🔔 Nuova prenotazione: ${newRows.length}`);
@@ -385,9 +416,11 @@ export default function PannelloAdminPage() {
         }))
         .filter((x: AdminRow) => x.id);
 
+      // 🔎 Detect “nuove prenotazioni” confrontando gli ID
       const prev = prevIdsRef.current;
       const nowIds = new Set(normalized.map((r) => r.id));
 
+      // primo caricamento: NON suonare
       if (!hasLoadedOnceRef.current) {
         hasLoadedOnceRef.current = true;
         prevIdsRef.current = nowIds;
@@ -447,6 +480,7 @@ export default function PannelloAdminPage() {
     router.refresh();
   };
 
+  // ✅ WhatsApp “no pagina bianca” su iPhone
   function openExternalUrl(url: string) {
     if (!url) return;
     if (isMobileDevice()) window.location.href = url;
@@ -462,20 +496,10 @@ export default function PannelloAdminPage() {
     openExternalUrl(waLink(p, message));
   }
 
-  const clearHighlightForId = (id: string) => {
-    setHighlightIds((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  };
-
   const setStatus = async (id: string, status: "RICHIESTA" | "CONFERMATA" | "ANNULLATA") => {
     const next = status;
 
-    if (next !== "RICHIESTA") clearHighlightForId(id);
-
+    // update ottimistico
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, stato: next } : r)));
 
     try {
@@ -534,17 +558,18 @@ export default function PannelloAdminPage() {
       return;
     }
     if (loggedIn) {
-      void loadRows({ silent: true });
+      void loadRows({ silent: true }); // primo load “muto”
       void loadAvailability(availDate);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checking, loggedIn]);
 
+  // refresh ogni 60 secondi
   useEffect(() => {
     if (!loggedIn) return;
     const id = window.setInterval(() => {
       if (document.hidden) return;
-      void loadRows();
+      void loadRows(); // qui suona se arrivano nuove
     }, 60_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -556,6 +581,7 @@ export default function PannelloAdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availDate, loggedIn]);
 
+  // loading “pulito”
   if (checking) {
     return (
       <div className={styles.page}>
@@ -572,6 +598,7 @@ export default function PannelloAdminPage() {
     );
   }
 
+  // se non loggato → redirect già fatto
   if (!loggedIn) return null;
 
   return (
@@ -615,7 +642,7 @@ export default function PannelloAdminPage() {
                   <div className={styles.chip}>❌ Annullate: {counts.ANNULLATA}</div>
                 </div>
 
-                {/* 🔔 Toggle suono/voce (Test rimosso) */}
+                {/* 🔔 Toggle suono/voce (senza tasto Test) */}
                 <div className={styles.chipsRow} style={{ marginTop: 10, gap: 10 }}>
                   <button
                     className={styles.miniBtn}
@@ -671,7 +698,7 @@ export default function PannelloAdminPage() {
           <div className={styles.body}>
             {/* DISPONIBILITÀ */}
             <div className={styles.list} style={{ marginBottom: 14 }}>
-              <div className={styles.card}>
+              <div className={styles.card} style={{ border: "1px solid rgba(148,163,184,0.28)" }}>
                 <div className={styles.leftBar} />
                 <div className={styles.cardTop}>
                   <div className={styles.panelTitle}>🕒 Disponibilità (orari liberi)</div>
@@ -768,31 +795,27 @@ export default function PannelloAdminPage() {
                   const telOk = Boolean(safeTel(tel));
 
                   const isHighlighted = Boolean(highlightIds[r.id] && highlightIds[r.id] > Date.now());
-                  const isRequest = st === "RICHIESTA";
-                  const glowActive = isRequest && isHighlighted;
+                  const isPending = st === "RICHIESTA";
 
-                  // ✅ BORDO COMPLETO (colorato per stato) per separare bene le card
-                  let borderCol = "rgba(15, 23, 42, 0.14)";
-                  if (st === "RICHIESTA") borderCol = "rgba(245, 158, 11, 0.35)";
-                  if (st === "CONFERMATA") borderCol = "rgba(34, 197, 94, 0.30)";
-                  if (st === "ANNULLATA") borderCol = "rgba(239, 68, 68, 0.32)";
+                  const borderCol = cardBorderColor(st);
+
+                  // glow: sempre per RICHIESTA, e più forte quando è “nuova”
+                  const baseGlow = isPending ? "0 0 0 6px rgba(245,158,11,0.08)" : "none";
+                  const extraGlow = isHighlighted ? "0 0 0 9px rgba(245,158,11,0.12)" : "none";
 
                   return (
                     <div
                       key={r.id}
                       className={styles.card}
                       style={{
-                        // ✅ bordo completo
-                        border: `2px solid ${borderCol}`,
-                        // mantiene l’effetto “nuova richiesta” senza rompere altro
-                        outline: glowActive ? "3px solid rgba(245,158,11,0.55)" : "none",
-                        boxShadow: glowActive
-                          ? "0 0 0 6px rgba(245,158,11,0.10), 0 18px 55px rgba(0,0,0,0.18)"
-                          : isRequest
-                          ? "0 0 0 4px rgba(245,158,11,0.06)"
-                          : undefined,
-                        transform: glowActive ? "translateY(-1px)" : undefined,
-                        transition: "outline 220ms ease, box-shadow 220ms ease, transform 220ms ease, border 220ms ease",
+                        border: `1px solid ${borderCol}`, // ✅ bordo completo
+                        outline: isHighlighted ? "3px solid rgba(245,158,11,0.55)" : "none",
+                        boxShadow:
+                          isPending || isHighlighted
+                            ? `${baseGlow !== "none" ? baseGlow : ""}${extraGlow !== "none" ? `, ${extraGlow}` : ""}, 0 18px 55px rgba(0,0,0,0.18)`
+                            : undefined,
+                        transform: isHighlighted ? "translateY(-1px)" : undefined,
+                        transition: "outline 220ms ease, box-shadow 220ms ease, transform 220ms ease, border-color 220ms ease",
                       }}
                     >
                       <div className={styles.leftBar} />
@@ -801,13 +824,13 @@ export default function PannelloAdminPage() {
                         <span
                           className={styles.nameBadge}
                           style={{
-                            // ✅ oro più scuro (si legge meglio)
-                            color: "rgba(145, 100, 0, 0.98)",
-                            textShadow: "0 1px 0 rgba(255,255,255,0.55)",
+                            // ✅ oro più scuro e leggibile
+                            color: "#b8860b",
                             fontWeight: 950,
+                            textShadow: "0 1px 0 rgba(255,255,255,0.35), 0 2px 10px rgba(0,0,0,0.18)",
                           }}
                         >
-                          {nome} {glowActive ? "✨" : ""}
+                          {nome} {isHighlighted ? "✨" : ""}
                         </span>
 
                         <span className={styles.rightStatus} style={statusPillStyle(st)}>
